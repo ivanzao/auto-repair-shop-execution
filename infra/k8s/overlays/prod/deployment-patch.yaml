@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auto-repair-shop-execution
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: auto-repair-shop-execution
+          resources:
+            requests:
+              cpu: 500m
+              memory: 768Mi
+            limits:
+              memory: 1.5Gi

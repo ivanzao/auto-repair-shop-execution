@@ -1,0 +1,28 @@
+application:
+  url: http://localhost:8080
+  profile: test
+
+server:
+  port: 8080
+
+aws:
+  region: us-east-1
+
+dynamodb:
+  table:
+    name: auto-repair-shop-execution-test
+
+sns:
+  topic:
+    arn: "arn:aws:sns:us-east-1:000000000000:auto-repair-shop-execution-events"
+
+sqs:
+  queue:
+    url: "http://localhost:4566/000000000000/auto-repair-shop-execution-saga"
+
+reservation:
+  ttl:
+    days: 7
+  job:
+    interval:
+      seconds: 3600

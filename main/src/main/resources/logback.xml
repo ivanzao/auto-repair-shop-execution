@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <contextName>auto-repair-shop-execution</contextName>
+
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>trace_id</includeMdcKeyName>
+            <includeMdcKeyName>span_id</includeMdcKeyName>
+            <includeMdcKeyName>trace_flags</includeMdcKeyName>
+            <customFields>{"service":"auto-repair-shop-execution"}</customFields>
+        </encoder>
+    </appender>
+
+    <logger name="io.ktor" level="INFO"/>
+    <logger name="org.testcontainers" level="WARN"/>
+    <logger name="aws.smithy.kotlin" level="WARN"/>
+    <logger name="aws.sdk.kotlin" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+</configuration>
