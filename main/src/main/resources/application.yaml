@@ -1,0 +1,30 @@
+application:
+  url: http://localhost:8080
+  profile: dev
+
+server:
+  port: 8080
+
+aws:
+  region: us-east-1
+
+dynamodb:
+  table:
+    name: auto-repair-shop-execution-dev
+
+sns:
+  topic:
+    # tópico de eventos do execution (produz SuppliesReserved etc.). Runtime: SNS_TOPIC_ARN (SSM execution-events-topic-arn)
+    arn: "arn:aws:sns:us-east-1:000000000000:auto-repair-shop-execution-events"
+
+sqs:
+  queue:
+    # fila de entrada do execution (consome OrderCreated/PaymentConfirmed/...). Runtime: SQS_QUEUE_URL (SSM execution-saga-queue-url)
+    url: "http://localhost:4566/000000000000/auto-repair-shop-execution-saga"
+
+reservation:
+  ttl:
+    days: 7
+  job:
+    interval:
+      seconds: 3600
