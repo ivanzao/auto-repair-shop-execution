@@ -1,0 +1,97 @@
+[versions]
+kotlin = "2.2.10"
+junit = "5.10.2"
+koin = "4.1.1"
+ktor = "3.3.3"
+jackson = "2.20.1"
+exposed = "0.61.0"
+hikari = "7.0.2"
+testcontainers = "1.21.4"
+postgres = "42.7.8"
+slf4j = "2.0.16"
+logback = "1.5.21"
+flyway = "11.17.0"
+coroutines = "1.10.1"
+bouncycastle = "1.83"
+shedlock = "7.5.0"
+aws-sdk-kotlin = "1.5.13"
+micrometer = "1.13.6"
+logstash-logback = "8.0"
+mockk = "1.14.7"
+cucumber = "7.18.0"
+sonarqube = "5.1.0.4882"
+
+[libraries]
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+
+# Koin
+koin-bom = { module = "io.insert-koin:koin-bom", version.ref = "koin" }
+koin-core = { module = "io.insert-koin:koin-core" }
+koin-ktor = { module = "io.insert-koin:koin-ktor" }
+
+# Ktor
+ktor-server-core = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }
+ktor-server-netty = { module = "io.ktor:ktor-server-netty-jvm", version.ref = "ktor" }
+ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation-jvm", version.ref = "ktor" }
+ktor-server-auth = { module = "io.ktor:ktor-server-auth", version.ref = "ktor" }
+ktor-server-statusPages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
+ktor-server-swagger = { module = "io.ktor:ktor-server-swagger", version.ref = "ktor" }
+ktor-serialization-jackson = { module = "io.ktor:ktor-serialization-jackson-jvm", version.ref = "ktor" }
+ktor-logging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" }
+ktor-server-metrics-micrometer = { module = "io.ktor:ktor-server-metrics-micrometer", version.ref = "ktor" }
+
+# Observability
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus", version.ref = "micrometer" }
+logstash-logback-encoder = { module = "net.logstash.logback:logstash-logback-encoder", version.ref = "logstash-logback" }
+
+# Jackson
+jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+jackson-datatype-jsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
+jackson-dataformat-yaml = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml", version.ref = "jackson" }
+
+# Exposed
+exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
+exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
+exposed-datetime = { module = "org.jetbrains.exposed:exposed-kotlin-datetime", version.ref = "exposed" }
+hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
+postgres-driver = { module = "org.postgresql:postgresql", version.ref = "postgres" }
+
+# Flyway
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+
+testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+
+# Logging
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+
+# Cryptography and Hashing
+bouncycastle-provider = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+
+# ShedLock
+shedlock-core = { module = "net.javacrumbs.shedlock:shedlock-core", version.ref = "shedlock" }
+shedlock-provider-jdbc = { module = "net.javacrumbs.shedlock:shedlock-provider-jdbc", version.ref = "shedlock" }
+
+# AWS SDK Kotlin
+aws-sdk-kotlin-sns = { module = "aws.sdk.kotlin:sns", version.ref = "aws-sdk-kotlin" }
+aws-sdk-kotlin-sqs = { module = "aws.sdk.kotlin:sqs", version.ref = "aws-sdk-kotlin" }
+aws-sdk-kotlin-dynamodb = { module = "aws.sdk.kotlin:dynamodb", version.ref = "aws-sdk-kotlin" }
+
+testcontainers-localstack = { module = "org.testcontainers:localstack", version.ref = "testcontainers" }
+
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+
+cucumber-java = { module = "io.cucumber:cucumber-java", version.ref = "cucumber" }
+cucumber-junit-platform-engine = { module = "io.cucumber:cucumber-junit-platform-engine", version.ref = "cucumber" }
+junit-platform-suite = { module = "org.junit.platform:junit-platform-suite" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+sonarqube = { id = "org.sonarqube", version.ref = "sonarqube" }

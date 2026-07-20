@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: auto-repair-shop-hml
+
+resources:
+  - ../../base
+
+patches:
+  - path: deployment-patch.yaml
+  - path: configmap-patch.yaml
+
+images:
+  - name: ghcr.io/ivanzao/auto-repair-shop-execution
+    newTag: latest

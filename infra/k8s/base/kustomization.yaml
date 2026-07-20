@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app: auto-repair-shop-execution
+    includeSelectors: true
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - configmap.yaml
+  - hpa.yaml
+  - servicemonitor.yaml

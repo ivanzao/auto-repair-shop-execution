@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auto-repair-shop-execution-config
+data:
+  SERVER_PORT: "8080"
+  AWS_REGION: "us-east-1"
+  # DYNAMODB_TABLE_NAME, SNS_TOPIC_ARN (tópico execution-events) e SQS_QUEUE_URL
+  # (fila execution-saga) são patched no overlay em runtime (lidos de SSM no CI).
