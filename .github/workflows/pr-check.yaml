@@ -30,6 +30,9 @@ jobs:
       - name: Integration Tests
         run: ./gradlew integrationTest
 
+      - name: BDD Tests
+        run: ./gradlew bddTest
+
       - name: Sonar
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
