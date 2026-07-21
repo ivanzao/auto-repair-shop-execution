@@ -124,3 +124,26 @@ role/policy dedicada, sem Secrets Manager). O execution só lê SSM.
 
 Health/metrics: `GET /health`, `GET /metrics`. Deploy: containerPort 8080, Service NodePort **30082**,
 imagem `ghcr.io/ivanzao/auto-repair-shop-execution`, namespace `auto-repair-shop-{env}`.
+
+## API
+
+Swagger UI em `GET /swagger`; spec em `api/src/main/resources/openapi/documentation.yaml`.
+Rotas de `/v1/executions` exigem role `MECHANIC`; as de `/v1/supplies`, `ADMIN`.
+
+## Cobertura
+
+| Métrica | Valor |
+|---|---|
+| Cobertura (SonarCloud) | **89.0%** |
+| Testes | 31 |
+| Quality gate | Passed |
+
+Análise a cada PR pelo step `Sonar` do `pr-check.yaml`, no projeto
+`auto-repair-shop-execution` da organização `ivanzao` no SonarCloud. O quality gate
+exige 80% de cobertura em código novo.
+
+Ficam fora da contagem de cobertura o wiring de framework (`config`, `auth`,
+`metric`), o módulo `main` e os DTOs — código sem lógica de negócio própria. Eles
+seguem analisados para bugs, code smells e security hotspots.
+
+<!-- TODO: print do dashboard do SonarCloud (projeto é privado, link exige login) -->
