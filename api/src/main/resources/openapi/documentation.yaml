@@ -1,491 +1,300 @@
 openapi: "3.1.0"
 info:
-  title: "Auto Repair Shop API"
-  description: "API para gerenciamento de oficina mecânica - FIAP SOAT"
+  title: "Auto Repair Shop Execution API"
+  description: |
+    API do execution service - FIAP SOAT.
+
+    Responsável pela fila de execução das ordens de serviço, pelo avanço de
+    status durante diagnóstico e reparo, e pelo estoque de peças. Participa da
+    saga coreografada: reserva peças ao receber `OrderCreated`, libera a reserva
+    nas compensações (`QuoteRejected`, `PaymentFailed`) e comunica o fim da
+    execução ao order.
+
+    Persistência em DynamoDB single-table.
   version: "1.0.0"
 
 servers:
-  - url: "http://localhost:8080/v1"
+  - url: "http://localhost:8080"
     description: "Local development server"
 
 tags:
   - name: Health
     description: "Health check da aplicação"
-  - name: Order
-    description: "Gerenciamento de ordens de serviço"
-  - name: Customer
-    description: "Gerenciamento de clientes"
-  - name: Vehicle
-    description: "Gerenciamento de veículos"
-  - name: Service
-    description: "Gerenciamento de serviços oferecidos pela oficina"
-  - name: Attendant
-    description: "Gerenciamento de atendentes da oficina (requer role ADMIN)"
+  - name: Execution
+    description: "Fila de execução e ciclo de vida da execução (requer role MECHANIC)"
+  - name: Supply
+    description: "Gerenciamento do estoque de peças (requer role ADMIN)"
 
 paths:
-  # ==================== ORDERS ====================
-  /orders:
+  /health:
     get:
       tags:
-        - Order
-      summary: "Listar ordens de serviço"
-      description: "Retorna a lista paginada de todas as ordens de serviço"
-      operationId: getAllOrders
+        - Health
+      summary: "Health check"
+      description: "Verifica se a aplicação está no ar. Usado pelas probes do Kubernetes."
+      responses:
+        "200":
+          description: "Aplicação saudável"
+          content:
+            text/plain:
+              schema:
+                type: string
+                examples:
+                  - "OK"
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: "Métricas Prometheus"
+      description: "Métricas no formato Prometheus, coletadas pelo ServiceMonitor."
+      responses:
+        "200":
+          description: "Métricas expostas"
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /v1/executions:
+    get:
+      tags:
+        - Execution
+      summary: "Lista execuções por status"
+      description: |
+        Retorna as execuções em um determinado status. É a fila de trabalho do
+        mecânico: sem o parâmetro `status`, retorna as execuções em `QUEUED`.
       security:
         - bearerAuth: []
       parameters:
-        - name: page
+        - name: status
           in: query
           required: false
-          description: "Número da página (padrão: 1)"
+          description: "Status a filtrar. Default: `QUEUED`."
           schema:
-            type: integer
-            format: int32
-            default: 1
-            minimum: 1
+            $ref: "#/components/schemas/ExecutionStatus"
       responses:
         "200":
-          description: "Lista de ordens"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PageOrderResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-    post:
-      tags:
-        - Order
-      summary: "Criar nova ordem de serviço"
-      description: "Cria uma nova ordem de serviço para um cliente e veículo"
-      operationId: createOrder
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateOrderRequestDTO"
-      responses:
-        "201":
-          description: "Ordem criada com sucesso"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OrderResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /orders/{id}:
-    get:
-      tags:
-        - Order
-      summary: "Buscar ordem por ID"
-      description: "Retorna os detalhes completos de uma ordem de serviço"
-      operationId: getOrderById
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID da ordem de serviço"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Ordem encontrada"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OrderResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Ordem não encontrada"
-
-  /orders/{id}/status:
-    get:
-      tags:
-        - Order
-      summary: "Consultar status da ordem"
-      description: "Endpoint público para cliente consultar status da ordem"
-      operationId: getOrderStatus
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID da ordem de serviço"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Status encontrado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OrderStatusResponseDTO"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid Order ID format"
-        "404":
-          description: "Ordem não encontrada"
-
-  /orders/metrics:
-    get:
-      tags:
-        - Order
-      summary: "Obter métricas de ordens"
-      description: "Retorna métricas consolidadas das ordens de serviço (total completadas e tempo médio de execução)"
-      operationId: getOrderMetrics
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Métricas obtidas com sucesso"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OrderMetricsResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /orders/{id}/schedule-delivery:
-    post:
-      tags:
-        - Order
-      summary: "Agendar entrega do veículo"
-      description: "Agenda a data/hora de entrega do veículo na oficina"
-      operationId: scheduleDelivery
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID da ordem de serviço"
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/OrderScheduleVehicleRequestDTO"
-      responses:
-        "200":
-          description: "Entrega agendada com sucesso"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /orders/{id}/schedule-return:
-    post:
-      tags:
-        - Order
-      summary: "Agendar devolução do veículo"
-      description: "Agenda a data/hora de devolução do veículo ao cliente"
-      operationId: scheduleReturn
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID da ordem de serviço"
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/OrderScheduleVehicleRequestDTO"
-      responses:
-        "200":
-          description: "Devolução agendada com sucesso"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /orders/{id}/deliver:
-    post:
-      tags:
-        - Order
-      summary: "Entregar veículo ao cliente"
-      description: "Marca a ordem de serviço como entregue ao cliente"
-      operationId: deliverOrder
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID da ordem de serviço"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Ordem marcada como entregue"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OrderResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Ordem não encontrada"
-
-  # ==================== CUSTOMERS ====================
-  /customers:
-    get:
-      tags:
-        - Customer
-      summary: "Listar todos os clientes"
-      description: "Retorna a lista de todos os clientes cadastrados"
-      operationId: getAllCustomers
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Lista de clientes"
+          description: "Lista de execuções no status informado"
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/CustomerResponseDTO"
+                  $ref: "#/components/schemas/ExecutionResponse"
+        "400":
+          description: "Status informado não é um valor válido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Não autorizado"
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role MECHANIC"
+
+  /v1/executions/{orderId}:
+    get:
+      tags:
+        - Execution
+      summary: "Consulta uma execução"
+      description: "Retorna a execução da ordem de serviço informada."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: "Identificador da ordem de serviço"
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Execução encontrada"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResponse"
+        "400":
+          description: "`orderId` não é um UUID válido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role MECHANIC"
+        "422":
+          description: "Nenhuma execução para a ordem informada"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/executions/{orderId}/finish-diagnosis:
     post:
       tags:
-        - Customer
-      summary: "Cadastrar novo cliente"
-      description: "Cria um novo cliente no sistema"
-      operationId: createCustomer
+        - Execution
+      summary: "Conclui o diagnóstico"
+      description: |
+        Marca o diagnóstico como concluído e move a execução para `DIAGNOSED`.
+        Publica `DiagnoseFinished` na saga.
       security:
         - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Diagnóstico concluído"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResponse"
+        "400":
+          description: "`orderId` não é um UUID válido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role MECHANIC"
+        "422":
+          description: "Execução em estado que não permite concluir diagnóstico"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/executions/{orderId}/finish:
+    post:
+      tags:
+        - Execution
+      summary: "Conclui a execução"
+      description: |
+        Marca a execução como concluída e move para `COMPLETED`. Publica
+        `ExecutionFinished`, que leva o order a fechar a OS.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Execução concluída"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResponse"
+        "400":
+          description: "`orderId` não é um UUID válido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role MECHANIC"
+        "422":
+          description: "Execução em estado que não permite conclusão"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/executions/{orderId}/fail:
+    post:
+      tags:
+        - Execution
+      summary: "Registra falha na execução"
+      description: |
+        Marca a execução como falha, com o motivo informado, e move para `FAILED`.
+        Publica `ExecutionFailed`, que dispara a compensação na saga.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateCustomerRequestDTO"
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: "Motivo da falha"
+                  examples:
+                    - "Peça chegou com defeito de fábrica"
+              required:
+                - reason
       responses:
-        "201":
-          description: "Cliente criado com sucesso"
+        "200":
+          description: "Falha registrada"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CustomerResponseDTO"
+                $ref: "#/components/schemas/ExecutionResponse"
+        "400":
+          description: "`orderId` inválido ou corpo da requisição malformado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Não autorizado"
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role MECHANIC"
+        "422":
+          description: "Execução em estado que não permite registrar falha"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /customers/{id}:
+  /v1/supplies:
     get:
       tags:
-        - Customer
-      summary: "Buscar cliente por ID"
-      description: "Retorna os dados de um cliente específico"
-      operationId: getCustomerById
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do cliente"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Cliente encontrado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CustomerResponseDTO"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Cliente não encontrado"
-
-    put:
-      tags:
-        - Customer
-      summary: "Atualizar cliente"
-      description: "Atualiza os dados de um cliente existente"
-      operationId: updateCustomer
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do cliente"
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateCustomerRequestDTO"
-      responses:
-        "200":
-          description: "Cliente atualizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CustomerResponseDTO"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Cliente não encontrado"
-
-    delete:
-      tags:
-        - Customer
-      summary: "Remover cliente"
-      description: "Remove um cliente do sistema"
-      operationId: deleteCustomer
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do cliente"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "204":
-          description: "Cliente removido com sucesso"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Cliente não encontrado"
-
-  # ==================== VEHICLES ====================
-  /vehicles:
-    get:
-      tags:
-        - Vehicle
-      summary: "Listar todos os veículos"
-      description: "Retorna a lista de todos os veículos cadastrados"
-      operationId: getAllVehicles
+        - Supply
+      summary: "Lista as peças em estoque"
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: "Lista de veículos"
+          description: "Lista de peças"
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/VehicleResponseDTO"
+                  $ref: "#/components/schemas/SupplyResponse"
         "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role ADMIN"
 
     post:
       tags:
-        - Vehicle
-      summary: "Cadastrar novo veículo"
-      description: "Cria um novo veículo vinculado a um cliente"
-      operationId: createVehicle
+        - Supply
+      summary: "Cadastra uma peça"
       security:
         - bearerAuth: []
       requestBody:
@@ -493,76 +302,73 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateVehicleRequestDTO"
+              $ref: "#/components/schemas/CreateSupplyRequest"
       responses:
         "201":
-          description: "Veículo criado com sucesso"
+          description: "Peça cadastrada"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/VehicleResponseDTO"
+                $ref: "#/components/schemas/SupplyResponse"
+        "400":
+          description: "Corpo da requisição inválido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role ADMIN"
 
-  /vehicles/{id}:
+  /v1/supplies/{id}:
     get:
       tags:
-        - Vehicle
-      summary: "Buscar veículo por ID"
-      description: "Retorna os dados de um veículo específico"
-      operationId: getVehicleById
+        - Supply
+      summary: "Consulta uma peça"
       security:
         - bearerAuth: []
       parameters:
         - name: id
           in: path
           required: true
-          description: "ID do veículo"
           schema:
             type: string
             format: uuid
       responses:
         "200":
-          description: "Veículo encontrado"
+          description: "Peça encontrada"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/VehicleResponseDTO"
+                $ref: "#/components/schemas/SupplyResponse"
         "400":
-          description: "ID inválido"
+          description: "`id` não é um UUID válido"
           content:
             application/json:
               schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
+                $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Não autorizado"
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role ADMIN"
+        "422":
+          description: "Peça não encontrada"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Veículo não encontrado"
 
     put:
       tags:
-        - Vehicle
-      summary: "Atualizar veículo"
-      description: "Atualiza os dados de um veículo existente"
-      operationId: updateVehicle
+        - Supply
+      summary: "Atualiza uma peça"
       security:
         - bearerAuth: []
       parameters:
         - name: id
           in: path
           required: true
-          description: "ID do veículo"
           schema:
             type: string
             format: uuid
@@ -571,458 +377,63 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateVehicleRequestDTO"
+              $ref: "#/components/schemas/CreateSupplyRequest"
       responses:
         "200":
-          description: "Veículo atualizado"
+          description: "Peça atualizada"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/VehicleResponseDTO"
+                $ref: "#/components/schemas/SupplyResponse"
         "400":
-          description: "ID inválido"
+          description: "`id` inválido ou corpo da requisição malformado"
           content:
             application/json:
               schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
+                $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Não autorizado"
+          description: "Token ausente ou inválido"
+        "403":
+          description: "Token válido, mas sem a role ADMIN"
+        "422":
+          description: "Peça não encontrada"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Veículo não encontrado"
 
     delete:
       tags:
-        - Vehicle
-      summary: "Remover veículo"
-      description: "Remove um veículo do sistema"
-      operationId: deleteVehicle
+        - Supply
+      summary: "Remove uma peça"
       security:
         - bearerAuth: []
       parameters:
         - name: id
           in: path
           required: true
-          description: "ID do veículo"
           schema:
             type: string
             format: uuid
       responses:
         "204":
-          description: "Veículo removido com sucesso"
+          description: "Peça removida"
         "400":
-          description: "ID inválido"
+          description: "`id` não é um UUID válido"
           content:
             application/json:
               schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
+                $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Veículo não encontrado"
-
-  # ==================== SERVICES ====================
-  /services:
-    get:
-      tags:
-        - Service
-      summary: "Listar todos os serviços"
-      description: "Retorna a lista de todos os serviços oferecidos pela oficina"
-      operationId: getAllServices
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Lista de serviços"
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ServiceResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-    post:
-      tags:
-        - Service
-      summary: "Cadastrar novo serviço"
-      description: "Cria um novo serviço oferecido pela oficina"
-      operationId: createService
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateServiceRequestDTO"
-      responses:
-        "201":
-          description: "Serviço criado com sucesso"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ServiceResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /services/{id}:
-    get:
-      tags:
-        - Service
-      summary: "Buscar serviço por ID"
-      description: "Retorna os dados de um serviço específico"
-      operationId: getServiceById
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do serviço"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Serviço encontrado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ServiceResponseDTO"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Serviço não encontrado"
-
-    put:
-      tags:
-        - Service
-      summary: "Atualizar serviço"
-      description: "Atualiza os dados de um serviço existente"
-      operationId: updateService
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do serviço"
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateServiceRequestDTO"
-      responses:
-        "200":
-          description: "Serviço atualizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ServiceResponseDTO"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Serviço não encontrado"
-
-    delete:
-      tags:
-        - Service
-      summary: "Remover serviço"
-      description: "Remove um serviço do sistema"
-      operationId: deleteService
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do serviço"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "204":
-          description: "Serviço removido com sucesso"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Serviço não encontrado"
-
-  # ==================== ATTENDANTS ====================
-  /attendants:
-    get:
-      tags:
-        - Attendant
-      summary: "Listar atendentes"
-      description: "Retorna lista de atendentes cadastrados (requer role ADMIN)"
-      operationId: getAllAttendants
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Lista de atendentes"
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/AttendantResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          description: "Token ausente ou inválido"
         "403":
-          description: "Acesso negado (requer ADMIN)"
+          description: "Token válido, mas sem a role ADMIN"
+        "422":
+          description: "Peça não encontrada"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
-    post:
-      tags:
-        - Attendant
-      summary: "Cadastrar novo atendente"
-      description: "Cria um novo atendente no sistema (requer role ADMIN)"
-      operationId: createAttendant
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateAttendantRequestDTO"
-      responses:
-        "201":
-          description: "Atendente criado com sucesso"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AttendantResponseDTO"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: "Acesso negado (requer ADMIN)"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /attendants/{id}:
-    get:
-      tags:
-        - Attendant
-      summary: "Buscar atendente por ID"
-      description: "Retorna os dados de um atendente específico (requer role ADMIN)"
-      operationId: getAttendantById
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do atendente"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Atendente encontrado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AttendantResponseDTO"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: "Acesso negado (requer ADMIN)"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Atendente não encontrado"
-
-    put:
-      tags:
-        - Attendant
-      summary: "Atualizar atendente"
-      description: "Atualiza os dados de um atendente existente (requer role ADMIN)"
-      operationId: updateAttendant
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do atendente"
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateAttendantRequestDTO"
-      responses:
-        "200":
-          description: "Atendente atualizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AttendantResponseDTO"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: "Acesso negado (requer ADMIN)"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Atendente não encontrado"
-
-    delete:
-      tags:
-        - Attendant
-      summary: "Remover atendente"
-      description: "Remove um atendente do sistema (requer role ADMIN)"
-      operationId: deleteAttendant
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: "ID do atendente"
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "204":
-          description: "Atendente removido com sucesso"
-        "400":
-          description: "ID inválido"
-          content:
-            application/json:
-              schema:
-                type: string
-              examples:
-                invalid:
-                  value: "Invalid ID format"
-        "401":
-          description: "Não autorizado"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: "Acesso negado (requer ADMIN)"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "Atendente não encontrado"
 
 components:
   securitySchemes:
@@ -1033,339 +444,83 @@ components:
       description: |
         Autenticação via JWT Bearer Token.
 
-        O token é emitido pelo Lambda Authorizer no API Gateway (repositório separado).
-        O app decodifica as claims (`sub` → userId, `role`) sem re-validar a assinatura.
+        O token é emitido pelo Lambda Authorizer no API Gateway (repositório
+        separado). O app decodifica as claims (`sub` → userId, `role`) sem
+        re-validar a assinatura.
 
         **Formato do header:**
-        ```
-        Authorization: Bearer <jwt>
-        ```
+        `Authorization: Bearer <token>`
 
-        **Roles disponíveis:**
-        - `ADMIN`: Acesso total a todos os endpoints protegidos (incluindo `/attendants`)
-        - `ATTENDANT`: Acesso a endpoints de ordens, clientes, veículos, serviços e insumos
+        Rotas de `/v1/executions` exigem a role `MECHANIC`; as de `/v1/supplies`
+        exigem `ADMIN`.
 
   schemas:
-    # ==================== ORDER DTOs ====================
-    CreateOrderRequestDTO:
-      type: object
-      description: "Dados para criar uma nova ordem de serviço. O attendantId é extraído automaticamente do JWT pelo servidor."
-      properties:
-        customerId:
-          type: string
-          format: uuid
-          description: "ID do cliente"
-        vehicleId:
-          type: string
-          format: uuid
-          description: "ID do veículo"
-        description:
-          type: string
-          description: "Descrição do problema/serviço solicitado"
-          example: "Veículo com barulho no motor ao acelerar"
-        technician:
-          type: string
-          nullable: true
-          description: "Nome do técnico responsável (opcional)"
-        servicesIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-          description: "IDs dos serviços a incluir na ordem"
-        extraSuppliesRequests:
-          type: array
-          items:
-            $ref: "#/components/schemas/SupplyRequirementDTO"
-          description: "Insumos extras necessários além dos serviços (opcional)"
-          default: []
-      required:
-        - customerId
-        - vehicleId
-        - description
-        - servicesIds
-
-    OrderResponseDTO:
-      type: object
-      description: "Resposta completa de uma ordem de serviço"
-      properties:
-        id:
-          type: string
-          format: uuid
-        createdAt:
-          type: string
-          format: date-time
-        status:
-          $ref: "#/components/schemas/OrderStatus"
-        customer:
-          $ref: "#/components/schemas/Customer"
-        vehicle:
-          $ref: "#/components/schemas/Vehicle"
-        attendantId:
-          type: string
-          format: uuid
-          description: "ID do atendente que criou a ordem"
-        description:
-          type: string
-        services:
-          type: array
-          items:
-            $ref: "#/components/schemas/Service"
-        technician:
-          type: string
-          nullable: true
-      required:
-        - id
-        - createdAt
-        - status
-        - customer
-        - vehicle
-        - attendantId
-        - description
-        - services
-
-    OrderStatusResponseDTO:
-      type: object
-      description: "Status resumido da ordem (para consulta pública)"
-      properties:
-        id:
-          type: string
-          format: uuid
-        status:
-          $ref: "#/components/schemas/OrderStatus"
-        modifiedAt:
-          type: string
-          format: date-time
-          description: "Última atualização da ordem"
-      required:
-        - id
-        - status
-        - modifiedAt
-
-    OrderMetricsResponseDTO:
-      type: object
-      description: "Métricas consolidadas das ordens de serviço"
-      properties:
-        totalCompleted:
-          type: integer
-          format: int64
-          description: "Total de ordens completadas"
-          example: 150
-        averageExecutionTimeSeconds:
-          type: integer
-          format: int64
-          nullable: true
-          description: "Tempo médio de execução em segundos (null se não houver ordens completadas)"
-          example: 86400
-      required:
-        - totalCompleted
-
-    PageOrderResponseDTO:
-      type: object
-      description: "Resposta paginada de ordens de serviço"
-      properties:
-        content:
-          type: array
-          items:
-            $ref: "#/components/schemas/OrderResponseDTO"
-          description: "Lista de ordens na página atual"
-        page:
-          type: integer
-          format: int32
-          description: "Número da página atual"
-          example: 1
-        size:
-          type: integer
-          format: int32
-          description: "Quantidade de itens na página"
-          example: 10
-      required:
-        - content
-        - page
-        - size
-
-    OrderScheduleVehicleRequestDTO:
-      type: object
-      description: "Dados para agendamento de entrega/devolução do veículo"
-      properties:
-        dateTime:
-          type: string
-          format: date-time
-          description: "Data e hora do agendamento (formato ISO 8601 UTC)"
-          example: "2025-01-20T10:00:00Z"
-      required:
-        - dateTime
-
-    OrderStatus:
+    ExecutionStatus:
       type: string
-      description: "Status possíveis de uma ordem de serviço"
+      description: "Status da execução dentro da saga"
       enum:
-        - RECEIVED
-        - IN_DIAGNOSIS
-        - WAITING_APPROVAL
-        - APPROVED
-        - REJECTED
+        - RESERVED
+        - QUEUED
         - IN_PROGRESS
-        - CANCELED
+        - DIAGNOSED
         - COMPLETED
-        - DELIVERED
+        - FAILED
+        - CANCELED
 
-    SupplyRequirementDTO:
+    ExecutionResponse:
       type: object
-      description: "Insumo necessário para um serviço"
       properties:
-        supplyId:
+        orderId:
           type: string
           format: uuid
-        quantity:
-          type: integer
-          format: int32
-          minimum: 1
+          description: "Ordem de serviço à qual a execução pertence"
+        status:
+          $ref: "#/components/schemas/ExecutionStatus"
+        reservationId:
+          type: [string, "null"]
+          format: uuid
+          description: "Reserva de peças associada, quando houver"
+        paymentId:
+          type: [string, "null"]
+          description: "Identificador do pagamento confirmado, quando houver"
+        createdAt:
+          type: string
+          description: "Data de criação"
+        modifiedAt:
+          type: string
+          description: "Data da última modificação"
       required:
-        - supplyId
-        - quantity
+        - orderId
+        - status
+        - createdAt
+        - modifiedAt
 
-    # ==================== CUSTOMER DTOs ====================
-    CreateCustomerRequestDTO:
+    CreateSupplyRequest:
       type: object
-      description: "Dados para cadastrar um cliente"
       properties:
         name:
           type: string
-          description: "Nome completo do cliente"
-          example: "Maria da Silva"
-        document:
-          type: string
-          description: "CPF ou CNPJ do cliente"
-          example: "123.456.789-00"
-        email:
-          type: string
-          format: email
-          description: "Email do cliente"
-          example: "maria@email.com"
-        contact:
-          type: string
-          description: "Telefone de contato"
-          example: "(11) 99999-9999"
-      required:
-        - name
-        - document
-        - email
-        - contact
-
-    CustomerResponseDTO:
-      type: object
-      description: "Dados do cliente"
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        document:
-          type: string
-        email:
-          type: string
-        contact:
-          type: string
-      required:
-        - id
-        - name
-        - document
-        - email
-        - contact
-
-    # ==================== VEHICLE DTOs ====================
-    CreateVehicleRequestDTO:
-      type: object
-      description: "Dados para cadastrar um veículo"
-      properties:
-        clientId:
-          type: string
-          format: uuid
-          description: "ID do cliente proprietário"
-        plate:
-          type: string
-          description: "Placa do veículo"
-          example: "ABC-1234"
-        brand:
-          type: string
-          description: "Marca do veículo"
-          example: "Toyota"
-        model:
-          type: string
-          description: "Modelo do veículo"
-          example: "Corolla"
-        year:
-          type: integer
-          format: int32
-          description: "Ano do veículo"
-          example: 2022
-      required:
-        - clientId
-        - plate
-        - brand
-        - model
-        - year
-
-    VehicleResponseDTO:
-      type: object
-      description: "Dados do veículo"
-      properties:
-        id:
-          type: string
-          format: uuid
-        plate:
-          type: string
-        brand:
-          type: string
-        model:
-          type: string
-        year:
-          type: integer
-          format: int32
-        clientId:
-          type: string
-          format: uuid
-      required:
-        - id
-        - plate
-        - brand
-        - model
-        - year
-        - clientId
-
-    # ==================== SUPPLY DTOs ====================
-    CreateServiceRequestDTO:
-      type: object
-      description: "Dados para cadastrar um serviço"
-      properties:
-        name:
-          type: string
-          description: "Nome do serviço"
-          example: "Troca de óleo"
+          examples:
+            - "Pastilha de freio dianteira"
         description:
-          type: string
-          nullable: true
-          description: "Descrição detalhada do serviço"
-          example: "Serviço de troca de óleo do motor incluindo filtro"
+          type: [string, "null"]
+          examples:
+            - "Compatível com modelos 2015-2020"
+        quantityInStock:
+          type: integer
+          examples:
+            - 24
         price:
           type: number
-          format: decimal
-          description: "Preço do serviço"
-          example: 150.00
-        requiredSupplies:
-          type: array
-          items:
-            $ref: "#/components/schemas/SupplyRequirementDTO"
-          description: "Insumos necessários para realizar o serviço"
+          examples:
+            - 189.90
       required:
         - name
+        - quantityInStock
         - price
 
-    ServiceResponseDTO:
+    SupplyResponse:
       type: object
-      description: "Dados do serviço"
       properties:
         id:
           type: string
@@ -1373,244 +528,53 @@ components:
         name:
           type: string
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
+        quantityInStock:
+          type: integer
         price:
           type: number
-          format: decimal
-        requiredSupplies:
-          type: array
-          items:
-            $ref: "#/components/schemas/SupplyRequirementDTO"
       required:
         - id
         - name
-        - price
-        - requiredSupplies
-
-    # ==================== ATTENDANT DTOs ====================
-    CreateAttendantRequestDTO:
-      type: object
-      description: "Dados para cadastrar um atendente"
-      properties:
-        name:
-          type: string
-          description: "Nome completo"
-          example: "Carlos Atendente"
-        document:
-          type: string
-          description: "CPF do atendente"
-          example: "111.222.333-44"
-        email:
-          type: string
-          format: email
-          description: "Email do atendente"
-          example: "carlos@autorepair.com"
-        contact:
-          type: string
-          description: "Telefone de contato"
-          example: "(11) 98888-7777"
-      required:
-        - name
-        - document
-        - email
-        - contact
-
-    UpdateAttendantRequestDTO:
-      type: object
-      description: "Dados para atualizar um atendente"
-      properties:
-        name:
-          type: string
-          description: "Nome completo"
-          example: "Carlos Atendente Atualizado"
-        document:
-          type: string
-          description: "CPF do atendente"
-          example: "111.222.333-44"
-        email:
-          type: string
-          format: email
-          description: "Email do atendente"
-          example: "carlos.novo@autorepair.com"
-        contact:
-          type: string
-          description: "Telefone de contato"
-          example: "(11) 98888-7777"
-      required:
-        - name
-        - document
-        - email
-        - contact
-
-    AttendantResponseDTO:
-      type: object
-      description: "Dados do atendente"
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        document:
-          type: string
-        email:
-          type: string
-        contact:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-      required:
-        - id
-        - name
-        - document
-        - email
-        - contact
-        - createdAt
-        - modifiedAt
-
-    # ==================== DOMAIN ENTITIES ====================
-    Customer:
-      type: object
-      description: "Entidade Cliente completa"
-      properties:
-        id:
-          type: string
-          format: uuid
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-        version:
-          type: integer
-          format: int32
-          default: 0
-        name:
-          type: string
-        document:
-          type: string
-        email:
-          type: string
-        contact:
-          type: string
-      required:
-        - id
-        - createdAt
-        - modifiedAt
-        - version
-        - name
-        - document
-        - email
-        - contact
-
-    Vehicle:
-      type: object
-      description: "Entidade Veículo completa"
-      properties:
-        id:
-          type: string
-          format: uuid
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-        version:
-          type: integer
-          format: int32
-          default: 0
-        clientId:
-          type: string
-          format: uuid
-        plate:
-          type: string
-        brand:
-          type: string
-        model:
-          type: string
-        year:
-          type: integer
-          format: int32
-      required:
-        - id
-        - createdAt
-        - modifiedAt
-        - version
-        - clientId
-        - plate
-        - brand
-        - model
-        - year
-
-    Service:
-      type: object
-      description: "Serviço de uma ordem"
-      properties:
-        id:
-          type: string
-          format: uuid
-        createdAt:
-          type: string
-          format: date-time
-        modifiedAt:
-          type: string
-          format: date-time
-        version:
-          type: integer
-          format: int32
-          default: 0
-        requiredSupplies:
-          type: array
-          items:
-            $ref: "#/components/schemas/SupplyRequirement"
-        name:
-          type: string
-        description:
-          type: string
-          nullable: true
-        price:
-          type: number
-          format: decimal
-      required:
-        - id
-        - createdAt
-        - modifiedAt
-        - version
-        - requiredSupplies
-        - name
+        - quantityInStock
         - price
 
-    SupplyRequirement:
-      type: object
-      description: "Quantidade de insumo requerido"
-      properties:
-        supplyId:
-          type: string
-          format: uuid
-        quantity:
-          type: integer
-          format: int32
-      required:
-        - supplyId
-        - quantity
-
-    # ==================== ERROR RESPONSE ====================
     ErrorResponse:
       type: object
-      description: "Resposta de erro padrão"
+      description: "Formato padrão de erro da aplicação"
       properties:
-        message:
-          type: string
-          description: "Mensagem de erro"
-          example: "Token is not valid or has expired"
         code:
           type: string
-          description: "Código do erro"
-          example: "UNAUTHORIZED"
+          examples:
+            - "EXECUTION_NOT_FOUND"
+        message:
+          type: string
+          examples:
+            - "Execution not found"
+      required:
+        - code
+        - message
+
+    ValidationError:
+      type: object
+      description: "Erro de validação de entrada, com detalhamento por campo"
+      properties:
+        code:
+          type: string
+          examples:
+            - "BAD_REQUEST"
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+            required:
+              - field
+              - message
+      required:
+        - code
+        - fieldErrors
