@@ -48,12 +48,14 @@ class SqsConsumerWorker(
                         this.queueUrl = this@SqsConsumerWorker.queueUrl
                         maxNumberOfMessages = 10
                         waitTimeSeconds = 10
+                        messageAttributeNames = listOf("traceparent")
                     },
                 ).messages.orEmpty()
                 for (msg in messages) {
                     try {
                         val env = mapper.readValue(msg.body!!, EventEnvelope::class.java)
-                        dispatcher.dispatch(env)
+                        val traceparent = msg.messageAttributes?.get("traceparent")?.stringValue
+                        dispatcher.dispatch(env, traceparent)
                         client.deleteMessage(
                             DeleteMessageRequest {
                                 this.queueUrl = this@SqsConsumerWorker.queueUrl
