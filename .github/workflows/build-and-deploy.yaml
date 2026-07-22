@@ -99,7 +99,7 @@ jobs:
           CLUSTER=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/eks/cluster-name --query Parameter.Value --output text)
           TABLE=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/execution/dynamodb/table-name --query Parameter.Value --output text)
           SNS_TOPIC=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sns/execution-events-topic-arn --query Parameter.Value --output text)
-          SQS_URL=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sqs/execution-saga-queue-url --query Parameter.Value --output text)
+          SQS_URL=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sqs/execution-queue-url --query Parameter.Value --output text)
           APIGW=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/apigw/endpoint --query Parameter.Value --output text)
           {
             echo "cluster=$CLUSTER"
