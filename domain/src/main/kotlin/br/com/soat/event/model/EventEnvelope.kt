@@ -15,4 +15,5 @@ data class EventEnvelope(
     val eventVersion: Int = 1,
     val occurredAt: String = Instant.now().toString(),
     val payload: JsonNode,
+    val traceparent: String? = null,
 )

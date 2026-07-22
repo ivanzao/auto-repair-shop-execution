@@ -21,7 +21,7 @@ class OutboxRelayTask(
         outbox.pending(10).forEach { env ->
             try {
                 val body = mapper.writeValueAsString(env)
-                sns.publish(body = body, eventType = env.eventType)
+                sns.publish(body = body, eventType = env.eventType, traceparent = env.traceparent)
                 outbox.markPublished(env.eventId)
             } catch (e: Exception) {
                 logger.error("Failed to relay outbox event ${env.eventId}", e)
