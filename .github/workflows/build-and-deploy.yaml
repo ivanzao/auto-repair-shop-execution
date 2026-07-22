@@ -148,6 +148,20 @@ jobs:
       - name: Wait for rollout
         run: kubectl rollout status deployment/auto-repair-shop-execution -n auto-repair-shop-${{ env.ENV }} --timeout=300s
 
+      - name: Ensure OTel agent injected
+        run: |
+          NS=auto-repair-shop-${{ env.ENV }}
+          agent=$(kubectl get pods -n "$NS" -l app=auto-repair-shop-execution \
+            -o jsonpath='{range .items[*]}{range .spec.initContainers[*]}{.name}{"\n"}{end}{end}' \
+            | grep -c opentelemetry-auto-instrumentation-java || true)
+          if [ "$agent" -eq 0 ]; then
+            echo "::warning::OTel agent not injected (mpod webhook raced pod creation); restarting"
+            kubectl rollout restart deployment/auto-repair-shop-execution -n "$NS"
+            kubectl rollout status deployment/auto-repair-shop-execution -n "$NS" --timeout=300s
+          else
+            echo "OTel agent present."
+          fi
+
       - name: Smoke test /health (in-cluster via port-forward)
         run: |
           kubectl port-forward -n auto-repair-shop-${{ env.ENV }} svc/auto-repair-shop-execution-service 18080:8080 &
