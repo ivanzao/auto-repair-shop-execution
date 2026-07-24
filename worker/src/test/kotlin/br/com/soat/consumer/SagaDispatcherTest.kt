@@ -8,6 +8,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.util.UUID
 
@@ -49,6 +50,23 @@ class SagaDispatcherTest {
         dispatcher.dispatch(env)
 
         verify(exactly = 0) { h.handle(any()) }
+    }
+
+    @Test
+    fun `continues the trace from the message traceparent inside the handler`() {
+        val traceId = "0af7651916cd43dd8448eb211c80319c"
+        val seen = mutableListOf<String>()
+        val h = handler(SagaEventType.ORDER_CREATED)
+        every { h.handle(any()) } answers {
+            seen += io.opentelemetry.api.trace.Span.current().spanContext.traceId
+        }
+        val dispatcher = SagaDispatcher(listOf(h), processed)
+        val env = envelope(SagaEventType.ORDER_CREATED)
+        every { processed.markProcessed(env.eventId, any()) } returns true
+
+        dispatcher.dispatch(env, "00-$traceId-b7ad6b7169203331-01")
+
+        assertEquals(listOf(traceId), seen)
     }
 
     @Test

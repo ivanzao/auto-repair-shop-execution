@@ -11,6 +11,7 @@ dependencies {
     implementation(libs.aws.sdk.kotlin.sns)
     implementation(libs.aws.sdk.kotlin.sqs)
     implementation(libs.aws.sdk.kotlin.dynamodb)
+    implementation(libs.opentelemetry.api)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.jackson.datatype.jsr310)
 

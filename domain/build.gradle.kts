@@ -3,6 +3,7 @@ dependencies {
     implementation(libs.slf4j.api)
     implementation(libs.bouncycastle.provider)
     implementation(libs.logstash.logback.encoder)
+    implementation(libs.opentelemetry.api)
 
     // Item pré-serializado (Map<String, AttributeValue>) flui pelos ports de saga (outbox/writer)
     // como bloco opaco montado pelos repositórios — tradeoff do design DynamoDB deste plano.

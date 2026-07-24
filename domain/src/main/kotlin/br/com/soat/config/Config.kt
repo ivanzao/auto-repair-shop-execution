@@ -6,7 +6,8 @@ class Config(
 
     fun getString(key: String, defaultValue: String? = null) = get(key, defaultValue) { it.toString() }
 
-    fun getStringOrNull(key: String): String? = try { getString(key) } catch (_: Exception) { null }
+    fun getStringOrNull(key: String): String? =
+        try { getString(key).takeIf { it.isNotBlank() } } catch (_: Exception) { null }
 
     fun getInt(key: String, defaultValue: Int? = null) =
         get(key, defaultValue) {

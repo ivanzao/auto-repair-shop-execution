@@ -8,19 +8,31 @@ import org.slf4j.LoggerFactory
 private val mapper = YAMLMapper().registerKotlinModule()
 private val logger = LoggerFactory.getLogger(Config::class.java)
 
-fun Config.Companion.fromClasspath(path: String): Config {
+fun Config.Companion.fromClasspath(path: String, env: (String) -> String? = { System.getenv(it) }): Config {
     val stream = Config::class.java.classLoader.getResourceAsStream(path)
         ?: throw IllegalArgumentException("File not found within classpath: $path")
 
-    return buildConfig(mapper.readValue(stream))
+    return buildConfig(mapper.readValue(stream), env)
 }
 
-private fun buildConfig(raw: Map<String, Any?>): Config {
+private val PLACEHOLDER = Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)(?::(.*?))?}""")
+
+private fun buildConfig(raw: Map<String, Any?>, env: (String) -> String?): Config {
     val flat = flatten(raw)
-        .mapValues { (k, v) -> searchAsEnvironmentVariable(k) ?: v }
+        .mapValues { (_, v) -> interpolate(v, env) }
 
     return Config(flat as MutableMap).also {
         logger.info("Loaded configs from application.yaml")
+    }
+}
+
+private fun interpolate(value: Any?, env: (String) -> String?): Any? {
+    if (value !is String) return value
+    return PLACEHOLDER.replace(value) { match ->
+        val name = match.groupValues[1]
+        env(name)
+            ?: match.groups[2]?.value
+            ?: throw ConfigException("Missing required environment variable: $name")
     }
 }
 
@@ -58,9 +70,4 @@ private fun flatten(
     }
 
     return result
-}
-
-private fun searchAsEnvironmentVariable(key: String): Any? {
-    val envVarName = key.uppercase().replace(".", "_")
-    return System.getenv()[envVarName]
 }

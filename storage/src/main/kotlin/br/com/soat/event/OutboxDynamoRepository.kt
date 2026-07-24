@@ -10,6 +10,8 @@ import br.com.soat.storage.Keys
 import br.com.soat.storage.n
 import br.com.soat.storage.s
 import br.com.soat.storage.str
+import br.com.soat.storage.strOrNull
+import br.com.soat.tracing.Tracing
 import com.fasterxml.jackson.databind.ObjectMapper
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -19,18 +21,20 @@ class OutboxDynamoRepository(
     private val mapper: ObjectMapper,
 ) : OutboxRepository {
 
-    override fun putItem(env: EventEnvelope): Map<String, AttributeValue> = mapOf(
-        "pk" to s(Keys.outbox(env.eventId)),
-        "sk" to s(Keys.outbox(env.eventId)),
-        "gsi1pk" to s(Keys.OUTBOX_PENDING),
-        "gsi1sk" to s(env.occurredAt),
-        "type" to s("OUTBOX"),
-        "eventId" to s(env.eventId.toString()),
-        "eventType" to s(env.eventType),
-        "eventVersion" to n(env.eventVersion),
-        "occurredAt" to s(env.occurredAt),
-        "payload" to s(mapper.writeValueAsString(env.payload)),
-    )
+    override fun putItem(env: EventEnvelope): Map<String, AttributeValue> = buildMap {
+        put("pk", s(Keys.outbox(env.eventId)))
+        put("sk", s(Keys.outbox(env.eventId)))
+        put("gsi1pk", s(Keys.OUTBOX_PENDING))
+        put("gsi1sk", s(env.occurredAt))
+        put("type", s("OUTBOX"))
+        put("eventId", s(env.eventId.toString()))
+        put("eventType", s(env.eventType))
+        put("eventVersion", n(env.eventVersion))
+        put("occurredAt", s(env.occurredAt))
+        put("payload", s(mapper.writeValueAsString(env.payload)))
+        val traceparent = env.traceparent ?: Tracing.currentTraceparent()
+        if (traceparent != null) put("traceparent", s(traceparent))
+    }
 
     override fun save(env: EventEnvelope): Unit = runBlocking {
         db.client.putItem(PutItemRequest { tableName = db.tableName; item = putItem(env) })
@@ -53,6 +57,7 @@ class OutboxDynamoRepository(
                 eventVersion = (it["eventVersion"] as AttributeValue.N).value.toInt(),
                 occurredAt = it.str("occurredAt"),
                 payload = mapper.readTree(it.str("payload")),
+                traceparent = it.strOrNull("traceparent"),
             )
         }
     }

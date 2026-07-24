@@ -2,7 +2,8 @@ name: Build & Deploy
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
+  workflow_dispatch: {}
 
 env:
   REGISTRY: ghcr.io
@@ -73,96 +74,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy:
-    name: Deploy to Kubernetes
-    runs-on: ubuntu-latest
+  deploy-hml:
     needs: build
-    env:
-      ENV: ${{ github.ref_name == 'main' && 'prod' || 'hml' }}
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/deploy-env.yaml
+    with:
+      environment: hml
+      image_tag: ${{ needs.build.outputs.image_tag }}
+    secrets: inherit
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Install kustomize
-        uses: imranismail/setup-kustomize@v2
-
-      - name: Read SSM params (cluster, dynamodb table, SNS topic, SQS queue, API GW)
-        id: ssm
-        run: |
-          CLUSTER=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/eks/cluster-name --query Parameter.Value --output text)
-          TABLE=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/execution/dynamodb/table-name --query Parameter.Value --output text)
-          SNS_TOPIC=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sns/execution-events-topic-arn --query Parameter.Value --output text)
-          SQS_URL=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sqs/execution-saga-queue-url --query Parameter.Value --output text)
-          APIGW=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/apigw/endpoint --query Parameter.Value --output text)
-          {
-            echo "cluster=$CLUSTER"
-            echo "table=$TABLE"
-            echo "sns_topic=$SNS_TOPIC"
-            echo "sqs_url=$SQS_URL"
-            echo "apigw_endpoint=$APIGW"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name ${{ steps.ssm.outputs.cluster }} --region ${{ env.AWS_REGION }}
-
-      - name: Create K8s Secret for GHCR image pull
-        run: |
-          kubectl create secret docker-registry ghcr-pull-secret \
-            --namespace=auto-repair-shop-${{ env.ENV }} \
-            --docker-server=ghcr.io \
-            --docker-username=${{ github.actor }} \
-            --docker-password=${{ secrets.GHCR_TOKEN }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Rewrite ConfigMap overlay with runtime values
-        working-directory: infra/k8s/overlays/${{ env.ENV }}
-        run: |
-          cat > configmap-patch.yaml <<EOF
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: auto-repair-shop-execution-config
-          data:
-            APPLICATION_PROFILE: "${{ env.ENV }}"
-            AWS_REGION: "${{ env.AWS_REGION }}"
-            DYNAMODB_TABLE_NAME: "${{ steps.ssm.outputs.table }}"
-            SNS_TOPIC_ARN: "${{ steps.ssm.outputs.sns_topic }}"
-            SQS_QUEUE_URL: "${{ steps.ssm.outputs.sqs_url }}"
-          EOF
-
-      - name: Set image tag in overlay
-        working-directory: infra/k8s/overlays/${{ env.ENV }}
-        run: |
-          kustomize edit set image ghcr.io/ivanzao/auto-repair-shop-execution=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.image_tag }}
-
-      - name: Apply Kustomize overlay
-        run: kubectl apply -k infra/k8s/overlays/${{ env.ENV }}
-
-      - name: Wait for rollout
-        run: kubectl rollout status deployment/auto-repair-shop-execution -n auto-repair-shop-${{ env.ENV }} --timeout=300s
-
-      - name: Smoke test /health (in-cluster via port-forward)
-        run: |
-          kubectl port-forward -n auto-repair-shop-${{ env.ENV }} svc/auto-repair-shop-execution-service 18080:8080 &
-          PF_PID=$!
-          sleep 5
-          RESULT=1
-          for i in $(seq 1 10); do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:18080/health" || echo 000)
-            if [ "$CODE" = "200" ]; then
-              echo "Smoke test passed (status=200)"
-              RESULT=0
-              break
-            fi
-            echo "Attempt $i/10 - got status $CODE, retrying in 5s..."
-            sleep 5
-          done
-          kill $PF_PID 2>/dev/null || true
-          exit $RESULT
+  deploy-prod:
+    needs: [build, deploy-hml]
+    uses: ./.github/workflows/deploy-env.yaml
+    with:
+      environment: prod
+      image_tag: ${{ needs.build.outputs.image_tag }}
+    secrets: inherit

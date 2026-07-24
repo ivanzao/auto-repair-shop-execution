@@ -1,0 +1,125 @@
+name: Deploy to environment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      ENV: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Read SSM params (cluster, dynamodb table, SNS topic, SQS queue, API GW)
+        id: ssm
+        run: |
+          CLUSTER=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/eks/cluster-name --query Parameter.Value --output text)
+          TABLE=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/execution/dynamodb/table-name --query Parameter.Value --output text)
+          SNS_TOPIC=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sns/execution-events-topic-arn --query Parameter.Value --output text)
+          SQS_URL=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sqs/execution-queue-url --query Parameter.Value --output text)
+          APIGW=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/apigw/endpoint --query Parameter.Value --output text)
+          {
+            echo "cluster=$CLUSTER"
+            echo "table=$TABLE"
+            echo "sns_topic=$SNS_TOPIC"
+            echo "sqs_url=$SQS_URL"
+            echo "apigw_endpoint=$APIGW"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ steps.ssm.outputs.cluster }} --region ${{ env.AWS_REGION }}
+
+      - name: Create K8s Secret for GHCR image pull
+        run: |
+          kubectl create secret docker-registry ghcr-pull-secret \
+            --namespace=auto-repair-shop-${{ env.ENV }} \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GHCR_TOKEN }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Rewrite ConfigMap overlay with runtime values
+        working-directory: infra/k8s/overlays/${{ env.ENV }}
+        run: |
+          cat > configmap-patch.yaml <<EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: auto-repair-shop-execution-config
+          data:
+            APPLICATION_PROFILE: "${{ env.ENV }}"
+            AWS_REGION: "${{ env.AWS_REGION }}"
+            DYNAMODB_TABLE_NAME: "${{ steps.ssm.outputs.table }}"
+            SNS_TOPIC_ARN: "${{ steps.ssm.outputs.sns_topic }}"
+            SQS_QUEUE_URL: "${{ steps.ssm.outputs.sqs_url }}"
+          EOF
+
+      - name: Set image tag in overlay
+        working-directory: infra/k8s/overlays/${{ env.ENV }}
+        run: |
+          kustomize edit set image ghcr.io/ivanzao/auto-repair-shop-execution=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image_tag }}
+
+      - name: Apply Kustomize overlay
+        run: kubectl apply -k infra/k8s/overlays/${{ env.ENV }}
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/auto-repair-shop-execution -n auto-repair-shop-${{ env.ENV }} --timeout=300s
+
+      - name: Ensure OTel agent injected
+        run: |
+          NS=auto-repair-shop-${{ env.ENV }}
+          agent=$(kubectl get pods -n "$NS" -l app=auto-repair-shop-execution \
+            -o jsonpath='{range .items[*]}{range .spec.initContainers[*]}{.name}{"\n"}{end}{end}' \
+            | grep -c opentelemetry-auto-instrumentation-java || true)
+          if [ "$agent" -eq 0 ]; then
+            echo "::warning::OTel agent not injected (mpod webhook raced pod creation); restarting"
+            kubectl rollout restart deployment/auto-repair-shop-execution -n "$NS"
+            kubectl rollout status deployment/auto-repair-shop-execution -n "$NS" --timeout=300s
+          else
+            echo "OTel agent present."
+          fi
+
+      - name: Smoke test /health (in-cluster via port-forward)
+        run: |
+          kubectl port-forward -n auto-repair-shop-${{ env.ENV }} svc/auto-repair-shop-execution-service 18080:8080 &
+          PF_PID=$!
+          sleep 5
+          RESULT=1
+          for i in $(seq 1 10); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:18080/health" || echo 000)
+            if [ "$CODE" = "200" ]; then
+              echo "Smoke test passed (status=200)"
+              RESULT=0
+              break
+            fi
+            echo "Attempt $i/10 - got status $CODE, retrying in 5s..."
+            sleep 5
+          done
+          kill $PF_PID 2>/dev/null || true
+          exit $RESULT

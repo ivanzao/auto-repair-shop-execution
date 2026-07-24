@@ -1,30 +1,33 @@
 application:
-  url: http://localhost:8080
-  profile: dev
+  url: "${APPLICATION_URL:http://localhost:8080}"
+  profile: "${APPLICATION_PROFILE:dev}"
 
 server:
-  port: 8080
+  port: "${SERVER_PORT:8080}"
 
 aws:
-  region: us-east-1
+  region: "${AWS_REGION:us-east-1}"
+  endpoint: "${AWS_ENDPOINT:}"
+  accessKeyId: "${AWS_ACCESS_KEY_ID:}"
+  secretAccessKey: "${AWS_SECRET_ACCESS_KEY:}"
 
 dynamodb:
   table:
-    name: auto-repair-shop-execution-dev
+    name: "${DYNAMODB_TABLE_NAME:auto-repair-shop-execution-dev}"
 
 sns:
   topic:
-    # tópico de eventos do execution (produz SuppliesReserved etc.). Runtime: SNS_TOPIC_ARN (SSM execution-events-topic-arn)
-    arn: "arn:aws:sns:us-east-1:000000000000:auto-repair-shop-execution-events"
+    # tópico de eventos do execution (produz SuppliesReserved etc.). Sempre setado por compose/k8s (SNS_TOPIC_ARN).
+    arn: "${SNS_TOPIC_ARN}"
 
 sqs:
   queue:
-    # fila de entrada do execution (consome OrderCreated/PaymentConfirmed/...). Runtime: SQS_QUEUE_URL (SSM execution-saga-queue-url)
-    url: "http://localhost:4566/000000000000/auto-repair-shop-execution-saga"
+    # fila de entrada do execution. Sempre setado por compose/k8s (SQS_QUEUE_URL).
+    url: "${SQS_QUEUE_URL}"
 
 reservation:
   ttl:
-    days: 7
+    days: "${RESERVATION_TTL_DAYS:7}"
   job:
     interval:
-      seconds: 3600
+      seconds: "${RESERVATION_JOB_INTERVAL_SECONDS:3600}"

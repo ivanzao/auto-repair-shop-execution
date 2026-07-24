@@ -1,0 +1,7 @@
+present: "${MY_VAR:default}"
+usesDefault: "${ABSENT:fallback}"
+emptyDefault: "${ABSENT2:}"
+embedded: "prefix-${MY_VAR:x}-suffix"
+required: "${REQUIRED_VAR}"
+plain: literal-value
+number: 8080
