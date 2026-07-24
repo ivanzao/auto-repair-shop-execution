@@ -7,10 +7,6 @@ import br.com.soat.tracing.Tracing
 import io.opentelemetry.api.trace.SpanKind
 import org.slf4j.LoggerFactory
 
-/**
- * Despacha o envelope para os handlers cujo `eventType` casa. Dedup por `(eventId, consumerId)`:
- * só roda `handle` se `markProcessed` gravou agora. Evento sem handler = no-op (será deletado da fila).
- */
 class SagaDispatcher(
     handlers: List<SagaEventHandler>,
     private val processed: ProcessedEventRepository,

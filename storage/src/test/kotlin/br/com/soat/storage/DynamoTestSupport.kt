@@ -16,7 +16,6 @@ import org.testcontainers.containers.localstack.LocalStackContainer
 import org.testcontainers.containers.localstack.LocalStackContainer.Service.DYNAMODB
 import org.testcontainers.utility.DockerImageName
 
-/** Cria a tabela single-table (pk/sk + GSI gsi1) usada pelo execution. */
 fun DynamoDb.createExecutionTable() = runBlocking {
     client.createTable(
         CreateTableRequest {
@@ -50,14 +49,9 @@ fun DynamoDb.dropExecutionTable() = runBlocking {
     try {
         client.deleteTable(DeleteTableRequest { tableName = this@dropExecutionTable.tableName })
     } catch (_: ResourceNotFoundException) {
-        // já removida
     }
 }
 
-/**
- * Base para testes de integração de repositórios DynamoDB.
- * Sobe um único LocalStack (DYNAMODB) por classe e recria a tabela antes de cada teste.
- */
 object DynamoTestSupport {
     val container: LocalStackContainer by lazy {
         LocalStackContainer(DockerImageName.parse("localstack/localstack:3.7"))

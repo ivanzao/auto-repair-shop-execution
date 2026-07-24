@@ -28,12 +28,10 @@ junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 opentelemetry-api = { module = "io.opentelemetry:opentelemetry-api", version.ref = "opentelemetry" }
 
-# Koin
 koin-bom = { module = "io.insert-koin:koin-bom", version.ref = "koin" }
 koin-core = { module = "io.insert-koin:koin-core" }
 koin-ktor = { module = "io.insert-koin:koin-ktor" }
 
-# Ktor
 ktor-server-core = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }
 ktor-server-netty = { module = "io.ktor:ktor-server-netty-jvm", version.ref = "ktor" }
 ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation-jvm", version.ref = "ktor" }
@@ -44,44 +42,36 @@ ktor-serialization-jackson = { module = "io.ktor:ktor-serialization-jackson-jvm"
 ktor-logging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" }
 ktor-server-metrics-micrometer = { module = "io.ktor:ktor-server-metrics-micrometer", version.ref = "ktor" }
 
-# Observability
 micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus", version.ref = "micrometer" }
 logstash-logback-encoder = { module = "net.logstash.logback:logstash-logback-encoder", version.ref = "logstash-logback" }
 
-# Jackson
 jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
 jackson-datatype-jsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310", version.ref = "jackson" }
 jackson-dataformat-yaml = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml", version.ref = "jackson" }
 
-# Exposed
 exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
 exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 exposed-datetime = { module = "org.jetbrains.exposed:exposed-kotlin-datetime", version.ref = "exposed" }
 hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
 postgres-driver = { module = "org.postgresql:postgresql", version.ref = "postgres" }
 
-# Flyway
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
 
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
 
-# Logging
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
-# Cryptography and Hashing
 bouncycastle-provider = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 
-# ShedLock
 shedlock-core = { module = "net.javacrumbs.shedlock:shedlock-core", version.ref = "shedlock" }
 shedlock-provider-jdbc = { module = "net.javacrumbs.shedlock:shedlock-provider-jdbc", version.ref = "shedlock" }
 
-# AWS SDK Kotlin
 aws-sdk-kotlin-sns = { module = "aws.sdk.kotlin:sns", version.ref = "aws-sdk-kotlin" }
 aws-sdk-kotlin-sqs = { module = "aws.sdk.kotlin:sqs", version.ref = "aws-sdk-kotlin" }
 aws-sdk-kotlin-dynamodb = { module = "aws.sdk.kotlin:dynamodb", version.ref = "aws-sdk-kotlin" }

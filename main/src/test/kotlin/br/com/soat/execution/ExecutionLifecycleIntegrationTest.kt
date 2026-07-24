@@ -10,7 +10,6 @@ import java.util.UUID
 
 class ExecutionLifecycleIntegrationTest : IntegrationTest() {
 
-    /** Leva a OS até IN_PROGRESS (reserva + pagamento) e devolve o orderId. */
     private fun startedExecution(): UUID {
         val created = http.createSupply("Bateria", 5, "250.00".toBigDecimal(), adminHeaders())
         val supplyId = UUID.fromString(created["id"].asText())
@@ -51,7 +50,6 @@ class ExecutionLifecycleIntegrationTest : IntegrationTest() {
     @Test
     fun `queued execution appears in mechanic queue`() {
         val orderId = startedExecution()
-        // IN_PROGRESS não está em QUEUED; a fila do mecânico usa status IN_PROGRESS aqui só para checar o filtro
         val response = http.listExecutions("IN_PROGRESS", mechanicHeaders())
         assertEquals(200, response.statusCode())
         val ids = http.mapper.readTree(response.body()).map { it["orderId"].asText() }
@@ -66,7 +64,6 @@ class ExecutionLifecycleIntegrationTest : IntegrationTest() {
         sendToQueue(SagaFixtures.orderCreated(http.mapper, orderId, supplyId, quantity = 1))
         waitForPublishedEvent(SagaEventType.SUPPLIES_RESERVED, orderId.toString())
 
-        // Execução está RESERVED (sem pagamento); finish é transição inválida → 409
         assertEquals(409, http.finish(orderId.toString(), mechanicHeaders()).statusCode())
     }
 

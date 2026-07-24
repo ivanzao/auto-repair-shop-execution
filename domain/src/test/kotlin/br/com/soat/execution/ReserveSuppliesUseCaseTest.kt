@@ -58,11 +58,9 @@ class ReserveSuppliesUseCaseTest {
 
         useCase.reserve(payload(quantity = 2))
 
-        // decrement reflete a quantidade pedida
         assertEquals(2, decrementsSlot.captured.single().quantity)
         assertEquals(supplyId, decrementsSlot.captured.single().supplyId)
 
-        // outbox recebeu o SuppliesReserved com o quote priced completo
         val reserved = envSlot.captured
         assertEquals(SagaEventType.SUPPLIES_RESERVED, reserved.eventType)
         val p = reserved.payload
@@ -73,9 +71,7 @@ class ReserveSuppliesUseCaseTest {
         assertEquals("Filtro", p["supplies"][0]["name"].asText())
         assertEquals(2, p["supplies"][0]["quantity"].asInt())
         assertEquals(0, "30.00".toBigDecimal().compareTo(p["supplies"][0]["unitPrice"].decimalValue()))
-        // totalAmount = 149.90 + 2 * 30.00 = 209.90
         assertEquals(0, "209.90".toBigDecimal().compareTo(p["totalAmount"].decimalValue()))
-        // reservationId presente
         UUID.fromString(p["reservationId"].asText())
     }
 

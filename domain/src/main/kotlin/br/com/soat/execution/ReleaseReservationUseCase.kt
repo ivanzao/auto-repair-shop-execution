@@ -10,12 +10,6 @@ import aws.sdk.kotlin.services.dynamodb.model.AttributeValue
 import java.util.UUID
 import org.slf4j.LoggerFactory
 
-/**
- * Libera uma reserva (compensação): restaura o estoque das linhas, desativa a Reservation, cancela a
- * Execution e, opcionalmente, grava um evento — tudo num único TransactWriteItems.
- * Idempotente: se a Reservation não está ACTIVE, no-op. A condição `#st = ACTIVE` no put da Reservation
- * fecha a corrida entre duas liberações concorrentes (a perdedora vira DUPLICATE → no-op).
- */
 class ReleaseReservationUseCase(
     private val reservationRepository: ReservationRepository,
     private val executionRepository: ExecutionRepository,

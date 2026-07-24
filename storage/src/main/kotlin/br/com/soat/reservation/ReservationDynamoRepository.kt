@@ -22,7 +22,6 @@ class ReservationDynamoRepository(private val db: DynamoDb) : ReservationReposit
     override fun putItem(reservation: Reservation): Map<String, AttributeValue> = buildMap {
         put("pk", s(Keys.reservation(reservation.id)))
         put("sk", s(Keys.reservation(reservation.id)))
-        // Esparso: apenas reserva ACTIVE participa do índice de expiração.
         if (reservation.status == ReservationStatus.ACTIVE) {
             put("gsi1pk", s(Keys.RES_ACTIVE))
             put("gsi1sk", s(reservation.expiresAt.toString()))

@@ -7,11 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import java.time.Instant
 import org.slf4j.LoggerFactory
 
-/**
- * Expira reservas ACTIVE vencidas: para cada uma, reusa [ReleaseReservationUseCase.release] passando
- * um `emit` que devolve ReservationExpired{orderId, reservationId}. Estoque volta, reserva expira e o
- * evento sai — atômico e idempotente (rodar 2x na mesma reserva: a 2ª é no-op pela condição status=ACTIVE).
- */
 class ExpireReservationsUseCase(
     private val reservationRepository: ReservationRepository,
     private val release: ReleaseReservationUseCase,

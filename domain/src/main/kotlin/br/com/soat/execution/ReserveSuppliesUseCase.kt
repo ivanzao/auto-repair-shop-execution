@@ -21,12 +21,6 @@ import java.time.Instant
 import java.util.UUID
 import org.slf4j.LoggerFactory
 
-/**
- * Reserva de insumos ao consumir OrderCreated. Estoque suficiente → SuppliesReserved (repassando o
- * quote priced enriquecido com name/unitPrice do estoque local + totalAmount calculado). Estoque
- * insuficiente ou corrida perdida → PartsUnavailable. Idempotente: OrderCreated reentregue vira no-op
- * pela condição `attribute_not_exists(pk)` no item da Execution.
- */
 class ReserveSuppliesUseCase(
     private val supplyRepository: SupplyRepository,
     private val executionRepository: ExecutionRepository,

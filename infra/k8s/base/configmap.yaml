@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: auto-repair-shop-execution-config
+  name: execution-config
 data:
   SERVER_PORT: "8080"
   AWS_REGION: "us-east-1"

@@ -17,12 +17,10 @@ dynamodb:
 
 sns:
   topic:
-    # tópico de eventos do execution (produz SuppliesReserved etc.). Sempre setado por compose/k8s (SNS_TOPIC_ARN).
     arn: "${SNS_TOPIC_ARN}"
 
 sqs:
   queue:
-    # fila de entrada do execution. Sempre setado por compose/k8s (SQS_QUEUE_URL).
     url: "${SQS_QUEUE_URL}"
 
 reservation:

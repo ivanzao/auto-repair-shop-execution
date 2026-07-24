@@ -4,11 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode
 import java.math.BigDecimal
 import java.util.UUID
 
-/**
- * Projeção do payload do OrderCreated que interessa ao execution. As supplies do OrderCreated trazem
- * apenas `id` e `quantity`; `name`/`unitPrice` são enriquecidos pelo estoque local ao produzir SuppliesReserved.
- * Parse manual (não via data-binding) para tolerar campos extras (vehicle, ids) sem configurar o mapper.
- */
 data class OrderCreatedPayload(
     val orderId: UUID,
     val customer: Customer,

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: auto-repair-shop-execution-config
+  name: execution-config
 data:
   APPLICATION_PROFILE: "prod"
   # DYNAMODB_TABLE_NAME, SNS_TOPIC_ARN, SQS_QUEUE_URL são injetados em runtime pelo CI (vêm de SSM)

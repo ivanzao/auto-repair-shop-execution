@@ -67,13 +67,11 @@ class SagaFlowIntegrationTest : IntegrationTest() {
         val supplyId = seedSupply("Vela", stock = 5, price = "5.00")
         val orderId = UUID.randomUUID()
 
-        // dois envelopes distintos (eventId diferente), mesmo orderId
         sendToQueue(SagaFixtures.orderCreated(http.mapper, orderId, supplyId, quantity = 2))
         sendToQueue(SagaFixtures.orderCreated(http.mapper, orderId, supplyId, quantity = 2))
 
         waitForPublishedEvent(SagaEventType.SUPPLIES_RESERVED, orderId.toString())
         waitForStock(supplyId, 3)
-        // permanece 3 (segundo é no-op idempotente)
         Thread.sleep(2000)
         assertEquals(3, stockOf(supplyId))
     }

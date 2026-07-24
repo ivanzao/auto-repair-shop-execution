@@ -7,10 +7,6 @@ import aws.sdk.kotlin.services.sns.model.PublishRequest
 import aws.smithy.kotlin.runtime.net.url.Url
 import kotlinx.coroutines.runBlocking
 
-/**
- * Publica no tópico de eventos do execution. Todo publish leva o message attribute
- * `eventType` (String, camelCase) e, quando presente, `traceparent`.
- */
 class SnsPublisher(
     private val topicArn: String,
     region: String = "us-east-1",

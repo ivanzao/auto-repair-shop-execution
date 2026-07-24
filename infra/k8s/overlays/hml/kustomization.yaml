@@ -9,6 +9,10 @@ resources:
 patches:
   - path: deployment-patch.yaml
   - path: configmap-patch.yaml
+  - target:
+      kind: Service
+      name: execution
+    path: nodeport-patch.yaml
 
 images:
   - name: ghcr.io/ivanzao/auto-repair-shop-execution

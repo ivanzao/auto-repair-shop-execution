@@ -22,7 +22,6 @@ fun Application.executionRoutes(koin: Koin) {
     routing {
         route("/v1") {
             authenticate("mechanic") {
-                // Fila do mecânico: GET /v1/executions?status=QUEUED (default QUEUED).
                 get("/executions") {
                     val status = call.request.queryParameters["status"]?.let { raw ->
                         try {

@@ -2,10 +2,6 @@ package br.com.soat.storage
 
 import java.util.UUID
 
-/**
- * Helpers de chave para a tabela single-table `auto-repair-shop-execution-{env}`.
- * Cada tipo de item tem seu prefixo em pk/sk; o GSI `gsi1` é esparso.
- */
 object Keys {
     const val GSI = "gsi1"
     const val SUPPLY_LIST = "SUPPLY"

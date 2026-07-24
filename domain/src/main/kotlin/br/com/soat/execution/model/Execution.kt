@@ -12,17 +12,6 @@ import com.fasterxml.jackson.databind.JsonNode
 import java.time.Instant
 import java.util.UUID
 
-/**
- * Agregado da OS no execution. `orderSnapshot` é o payload cru do OrderCreated (guardado para
- * repassar customer/services/supplies no SuppliesReserved).
- *
- * Transições válidas:
- * ```
- * RESERVED --queue()--> QUEUED --start()--> IN_PROGRESS --finishDiagnosis()--> DIAGNOSED --finish()--> COMPLETED
- * IN_PROGRESS/DIAGNOSED --fail()--> FAILED
- * RESERVED/QUEUED --cancel()--> CANCELED   (compensações QuoteRejected/PaymentFailed/ReservationExpired)
- * ```
- */
 data class Execution(
     val orderId: UUID,
     val status: ExecutionStatus,

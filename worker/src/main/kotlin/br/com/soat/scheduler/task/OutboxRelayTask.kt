@@ -6,10 +6,6 @@ import br.com.soat.scheduler.ScheduledTask
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
 
-/**
- * Relay outbox → SNS. Publica cada envelope pendente e o marca como publicado (remove do GSI PENDING).
- * Multi-réplica: se duas réplicas relayarem o mesmo item ambas publicam, mas o downstream deduplica por eventId.
- */
 class OutboxRelayTask(
     private val outbox: OutboxRepository,
     private val sns: SnsPublisher,

@@ -1,12 +1,12 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: auto-repair-shop-execution
+  name: execution
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: auto-repair-shop-execution
+    name: execution
   minReplicas: 2
   maxReplicas: 4
   metrics:

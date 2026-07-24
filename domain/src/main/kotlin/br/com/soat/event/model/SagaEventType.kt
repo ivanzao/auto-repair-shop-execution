@@ -1,12 +1,5 @@
 package br.com.soat.event.model
 
-/**
- * Strings de `eventType` da saga. Confirmadas contra os consumidores reais de order/billing:
- * - `SuppliesReserved` é consumido pelo billing.
- * - `PartsUnavailable` (NÃO "SuppliesUnavailable"), `ExecutionStarted`, `DiagnoseFinished`,
- *   `ExecutionFinished`, `ExecutionFailed`, `ReservationExpired` são consumidos pelo order.
- * - `OrderCreated`, `PaymentConfirmed`, `QuoteRejected`, `PaymentFailed` são consumidos por este serviço.
- */
 object SagaEventType {
     const val ORDER_CREATED = "OrderCreated"
     const val SUPPLIES_RESERVED = "SuppliesReserved"

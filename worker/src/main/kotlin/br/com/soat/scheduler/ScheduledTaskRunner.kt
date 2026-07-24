@@ -5,10 +5,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
-/**
- * Runner sem ShedLock. Segurança multi-réplica vem da idempotência e das escritas condicionais,
- * não de lock distribuído (não há JDBC aqui).
- */
 class ScheduledTaskRunner(private val tasks: List<ScheduledTask>) {
     private val logger = LoggerFactory.getLogger(ScheduledTaskRunner::class.java)
     private lateinit var scheduler: ScheduledExecutorService

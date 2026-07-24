@@ -3,7 +3,7 @@ kind: Kustomization
 
 labels:
   - pairs:
-      app: auto-repair-shop-execution
+      app: execution
     includeSelectors: true
 
 resources:

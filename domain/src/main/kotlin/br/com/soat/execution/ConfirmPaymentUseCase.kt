@@ -9,11 +9,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import java.util.UUID
 import org.slf4j.LoggerFactory
 
-/**
- * Ao consumir PaymentConfirmed: marca a Execution como paga e a leva de RESERVED a IN_PROGRESS
- * (`queue()` + `start()`), gravando ExecutionStarted. Atômico via TransactWriteItems.
- * Idempotente por construção: se a Execution já passou de RESERVED, a transição inválida vira no-op.
- */
 class ConfirmPaymentUseCase(
     private val executionRepository: ExecutionRepository,
     private val outbox: OutboxRepository,

@@ -13,10 +13,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 
-/**
- * Long-poll da fila de saga. Parse do envelope cru → dispatch → deleteMessage só em sucesso.
- * Falha em processar deixa a mensagem para redelivery.
- */
 class SqsConsumerWorker(
     private val queueUrl: String,
     private val region: String,

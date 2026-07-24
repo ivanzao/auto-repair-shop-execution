@@ -11,11 +11,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import java.util.UUID
 import org.slf4j.LoggerFactory
 
-/**
- * Ciclo de execução dirigido pelo mecânico via REST. Cada transição grava a Execution e o evento de
- * saída atomicamente (TransactWriteItems). Transição inválida lança InvalidExecutionTransitionException
- * (→ 409). Execução ausente → ExecutionNotFoundException (→ 404).
- */
 class ExecutionLifecycleUseCase(
     private val executionRepository: ExecutionRepository,
     private val outbox: OutboxRepository,

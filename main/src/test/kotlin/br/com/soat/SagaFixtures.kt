@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import java.math.BigDecimal
 import java.util.UUID
 
-/** Constrói envelopes crus de saga como os produzidos por order/billing. */
 object SagaFixtures {
 
     fun orderCreated(

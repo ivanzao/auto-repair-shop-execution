@@ -1,31 +1,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auto-repair-shop-execution
+  name: execution
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: auto-repair-shop-execution
+      app: execution
   template:
     metadata:
       labels:
-        app: auto-repair-shop-execution
+        app: execution
       annotations:
         instrumentation.opentelemetry.io/inject-java: "true"
     spec:
-      serviceAccountName: auto-repair-shop-execution
+      serviceAccountName: execution
       imagePullSecrets:
         - name: ghcr-pull-secret
       containers:
-        - name: auto-repair-shop-execution
+        - name: execution
           image: ghcr.io/ivanzao/auto-repair-shop-execution:latest
           ports:
             - containerPort: 8080
               name: http
           envFrom:
             - configMapRef:
-                name: auto-repair-shop-execution-config
+                name: execution-config
           readinessProbe:
             httpGet:
               path: /health

@@ -213,9 +213,6 @@ abstract class IntegrationTest {
 
     inline fun <reified T> get(): T = koinApplication.koin.get()
 
-    // --- helpers de saga ---
-
-    /** Envia um envelope cru na fila de entrada, simulando order/billing. */
     protected fun sendToQueue(envelope: JsonNode) {
         val mapper = get<ObjectMapper>()
         runBlocking {
@@ -226,7 +223,6 @@ abstract class IntegrationTest {
         }
     }
 
-    /** Long-poll na fila espiã até um evento publicado casar eventType (+ orderId opcional). Devolve o payload. */
     protected fun waitForPublishedEvent(eventType: String, orderId: String? = null, timeoutSeconds: Long = 25): JsonNode {
         val mapper = get<ObjectMapper>()
         val deadline = Instant.now().plusSeconds(timeoutSeconds)

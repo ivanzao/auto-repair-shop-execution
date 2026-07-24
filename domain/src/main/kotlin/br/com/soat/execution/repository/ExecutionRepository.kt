@@ -9,7 +9,6 @@ interface ExecutionRepository {
     fun findByOrderId(orderId: UUID): Execution?
     fun findByStatus(status: ExecutionStatus): List<Execution>
 
-    /** Monta o item para entrar num TransactWriteItems (não grava). */
     fun putItem(execution: Execution): Map<String, AttributeValue>
     fun save(execution: Execution)
 }

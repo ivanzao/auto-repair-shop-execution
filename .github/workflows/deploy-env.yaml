@@ -44,12 +44,14 @@ jobs:
           SNS_TOPIC=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sns/execution-events-topic-arn --query Parameter.Value --output text)
           SQS_URL=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/sqs/execution-queue-url --query Parameter.Value --output text)
           APIGW=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/apigw/endpoint --query Parameter.Value --output text)
+          NODE_PORT=$(aws ssm get-parameter --name /auto-repair-shop/${{ env.ENV }}/execution/node-port --query Parameter.Value --output text)
           {
             echo "cluster=$CLUSTER"
             echo "table=$TABLE"
             echo "sns_topic=$SNS_TOPIC"
             echo "sqs_url=$SQS_URL"
             echo "apigw_endpoint=$APIGW"
+            echo "node_port=$NODE_PORT"
           } >> "$GITHUB_OUTPUT"
 
       - name: Update kubeconfig
@@ -71,13 +73,22 @@ jobs:
           apiVersion: v1
           kind: ConfigMap
           metadata:
-            name: auto-repair-shop-execution-config
+            name: execution-config
           data:
             APPLICATION_PROFILE: "${{ env.ENV }}"
             AWS_REGION: "${{ env.AWS_REGION }}"
             DYNAMODB_TABLE_NAME: "${{ steps.ssm.outputs.table }}"
             SNS_TOPIC_ARN: "${{ steps.ssm.outputs.sns_topic }}"
             SQS_QUEUE_URL: "${{ steps.ssm.outputs.sqs_url }}"
+          EOF
+
+      - name: Rewrite Service nodePort from SSM
+        working-directory: infra/k8s/overlays/${{ env.ENV }}
+        run: |
+          cat > nodeport-patch.yaml <<EOF
+          - op: add
+            path: /spec/ports/0/nodePort
+            value: ${{ steps.ssm.outputs.node_port }}
           EOF
 
       - name: Set image tag in overlay
@@ -89,25 +100,25 @@ jobs:
         run: kubectl apply -k infra/k8s/overlays/${{ env.ENV }}
 
       - name: Wait for rollout
-        run: kubectl rollout status deployment/auto-repair-shop-execution -n auto-repair-shop-${{ env.ENV }} --timeout=300s
+        run: kubectl rollout status deployment/execution -n auto-repair-shop-${{ env.ENV }} --timeout=300s
 
       - name: Ensure OTel agent injected
         run: |
           NS=auto-repair-shop-${{ env.ENV }}
-          agent=$(kubectl get pods -n "$NS" -l app=auto-repair-shop-execution \
+          agent=$(kubectl get pods -n "$NS" -l app=execution \
             -o jsonpath='{range .items[*]}{range .spec.initContainers[*]}{.name}{"\n"}{end}{end}' \
             | grep -c opentelemetry-auto-instrumentation-java || true)
           if [ "$agent" -eq 0 ]; then
             echo "::warning::OTel agent not injected (mpod webhook raced pod creation); restarting"
-            kubectl rollout restart deployment/auto-repair-shop-execution -n "$NS"
-            kubectl rollout status deployment/auto-repair-shop-execution -n "$NS" --timeout=300s
+            kubectl rollout restart deployment/execution -n "$NS"
+            kubectl rollout status deployment/execution -n "$NS" --timeout=300s
           else
             echo "OTel agent present."
           fi
 
       - name: Smoke test /health (in-cluster via port-forward)
         run: |
-          kubectl port-forward -n auto-repair-shop-${{ env.ENV }} svc/auto-repair-shop-execution-service 18080:8080 &
+          kubectl port-forward -n auto-repair-shop-${{ env.ENV }} svc/execution 18080:8080 &
           PF_PID=$!
           sleep 5
           RESULT=1

@@ -67,12 +67,10 @@ val applicationModule = module {
     single<CoroutineDispatcher> { Dispatchers.IO }
     single<ObjectMapper> { jacksonObjectMapper().registerModule(JavaTimeModule()) }
 
-    // observability
     single<PrometheusMeterRegistry> { prometheusMeterRegistry() }
     single<MeterRegistry> { get<PrometheusMeterRegistry>() }
     single<MetricsPort> { MicrometerMetricsPort(get()) }
 
-    // dynamodb + sns
     single {
         val c = get<Config>()
         DynamoDb.create(
@@ -94,7 +92,6 @@ val applicationModule = module {
         )
     }
 
-    // storage
     single<SupplyRepository> { SupplyDynamoRepository(get()) }
     single<ExecutionRepository> { ExecutionDynamoRepository(get(), get()) }
     single<ReservationRepository> { ReservationDynamoRepository(get()) }
@@ -102,7 +99,6 @@ val applicationModule = module {
     single<ProcessedEventRepository> { ProcessedEventDynamoRepository(get()) }
     single<TransactionalWriter> { DynamoTransactionalWriter(get()) }
 
-    // domain use cases
     single { SupplyUseCase(get()) }
     single { ReserveSuppliesUseCase(get(), get(), get(), get(), get(), get(), get()) }
     single { ReleaseReservationUseCase(get(), get(), get(), get()) }
@@ -110,14 +106,12 @@ val applicationModule = module {
     single { ExecutionLifecycleUseCase(get(), get(), get(), get()) }
     single { ExpireReservationsUseCase(get(), get(), get()) }
 
-    // saga handlers
     single { OrderCreatedHandler(get()) } bind SagaEventHandler::class
     single { PaymentConfirmedHandler(get()) } bind SagaEventHandler::class
     single { QuoteRejectedHandler(get()) } bind SagaEventHandler::class
     single { PaymentFailedHandler(get()) } bind SagaEventHandler::class
     single { SagaDispatcher(getAll(), get()) }
 
-    // sqs consumer
     single {
         val c = get<Config>()
         SqsConsumerWorker(
@@ -132,7 +126,6 @@ val applicationModule = module {
         )
     }
 
-    // scheduled tasks
     single { OutboxRelayTask(get(), get(), get()) } bind ScheduledTask::class
     single {
         val c = get<Config>()
