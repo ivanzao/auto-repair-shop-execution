@@ -6,6 +6,10 @@ import io.ktor.server.metrics.micrometer.MicrometerMetrics
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics
+import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics
+import io.micrometer.core.instrument.binder.jvm.JvmThreadMetrics
+import io.micrometer.core.instrument.binder.system.ProcessorMetrics
 import io.micrometer.core.instrument.distribution.DistributionStatisticConfig
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
@@ -24,4 +28,9 @@ fun Application.configureObservability(registry: PrometheusMeterRegistry) {
 }
 
 fun prometheusMeterRegistry(): PrometheusMeterRegistry =
-    PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+    PrometheusMeterRegistry(PrometheusConfig.DEFAULT).also { registry ->
+        JvmMemoryMetrics().bindTo(registry)
+        JvmGcMetrics().bindTo(registry)
+        JvmThreadMetrics().bindTo(registry)
+        ProcessorMetrics().bindTo(registry)
+    }
