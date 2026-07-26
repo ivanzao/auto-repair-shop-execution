@@ -3,7 +3,9 @@ package br.com.soat.execution
 import br.com.soat.event.OutboxRepository
 import br.com.soat.event.model.EventEnvelope
 import br.com.soat.execution.model.Execution
+import br.com.soat.execution.model.ExecutionStatus
 import br.com.soat.execution.repository.ExecutionRepository
+import br.com.soat.metric.MetricsPort
 import br.com.soat.reservation.model.ReservationStatus
 import br.com.soat.reservation.repository.ReservationRepository
 import aws.sdk.kotlin.services.dynamodb.model.AttributeValue
@@ -15,18 +17,19 @@ class ReleaseReservationUseCase(
     private val executionRepository: ExecutionRepository,
     private val outbox: OutboxRepository,
     private val writer: TransactionalWriter,
+    private val metrics: MetricsPort,
 ) {
     private val logger = LoggerFactory.getLogger(ReleaseReservationUseCase::class.java)
 
-    fun release(reservationId: UUID, emit: (Execution) -> EventEnvelope? = { null }) {
+    fun release(reservationId: UUID, emit: (Execution) -> EventEnvelope? = { null }): Boolean {
         val reservation = reservationRepository.findById(reservationId)
         if (reservation == null) {
             logger.info("Reservation {} not found, nothing to release", reservationId)
-            return
+            return false
         }
         if (reservation.status != ReservationStatus.ACTIVE) {
             logger.info("Reservation {} not ACTIVE ({}), release is a no-op", reservationId, reservation.status)
-            return
+            return false
         }
 
         val execution = executionRepository.findByOrderId(reservation.orderId)
@@ -49,13 +52,24 @@ class ReleaseReservationUseCase(
         }
         val increments = reservation.lines.map { SupplyIncrement(it.supplyId, it.quantity) }
 
-        when (writer.writeAll(puts = puts, increments = increments)) {
-            TxResult.SUCCESS ->
+        return when (writer.writeAll(puts = puts, increments = increments)) {
+            TxResult.SUCCESS -> {
+                if (canceled?.status == ExecutionStatus.CANCELED) {
+                    metrics.executionStatusChanged(ExecutionStatus.CANCELED.name)
+                }
                 logger.info("Reservation {} released and stock restored", reservationId)
-            TxResult.DUPLICATE ->
+                true
+            }
+
+            TxResult.DUPLICATE -> {
                 logger.info("Reservation {} concurrently released (no-op)", reservationId)
-            TxResult.STOCK_CONFLICT ->
+                false
+            }
+
+            TxResult.STOCK_CONFLICT -> {
                 logger.warn("Unexpected STOCK_CONFLICT releasing reservation {}", reservationId)
+                false
+            }
         }
     }
 }

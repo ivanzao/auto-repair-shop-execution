@@ -9,7 +9,7 @@ import io.opentelemetry.context.propagation.TextMapGetter
 import io.opentelemetry.context.propagation.TextMapSetter
 
 object Tracing {
-    val tracer: Tracer get() = GlobalOpenTelemetry.getTracer("saga")
+    val tracer: Tracer get() = GlobalOpenTelemetry.getTracer("domain-events")
 
     private val propagator = W3CTraceContextPropagator.getInstance()
 

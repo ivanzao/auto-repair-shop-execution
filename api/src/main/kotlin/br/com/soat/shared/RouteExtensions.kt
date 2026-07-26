@@ -1,5 +1,8 @@
 package br.com.soat.shared
 
+import br.com.soat.auth.JwtUserPrincipal
+import br.com.soat.shared.model.User
+import io.ktor.server.auth.principal
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.routing.RoutingCall
 import java.util.UUID
@@ -24,4 +27,10 @@ fun RoutingCall.getUUIDQueryParameter(name: String): UUID {
     } catch (_: IllegalArgumentException) {
         throw BadRequestException("Invalid UUID format for query parameter: $name")
     }
+}
+
+fun RoutingCall.authenticatedUser(): User {
+    val principal = principal<JwtUserPrincipal>()
+        ?: throw IllegalStateException("Authenticated principal is missing")
+    return User(id = principal.userId, document = principal.document)
 }

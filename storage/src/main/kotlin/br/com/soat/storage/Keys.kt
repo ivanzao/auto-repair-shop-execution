@@ -5,10 +5,12 @@ import java.util.UUID
 object Keys {
     const val GSI = "gsi1"
     const val SUPPLY_LIST = "SUPPLY"
+    const val SERVICE_LIST = "SERVICE"
     const val OUTBOX_PENDING = "OUTBOX#PENDING"
     const val RES_ACTIVE = "RES#ACTIVE"
 
     fun supply(id: UUID) = "SUPPLY#$id"
+    fun service(id: UUID) = "SERVICE#$id"
     fun order(id: UUID) = "ORDER#$id"
     fun reservation(id: UUID) = "RES#$id"
     fun outbox(eventId: UUID) = "OUTBOX#$eventId"

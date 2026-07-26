@@ -2,10 +2,11 @@ package br.com.soat.execution
 
 import br.com.soat.event.OutboxRepository
 import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
+import br.com.soat.event.model.DomainEventType
 import br.com.soat.execution.model.Execution
 import br.com.soat.execution.model.ExecutionStatus
 import br.com.soat.execution.repository.ExecutionRepository
+import br.com.soat.metric.RecordingMetrics
 import br.com.soat.reservation.model.Reservation
 import br.com.soat.reservation.model.ReservationLine
 import br.com.soat.reservation.model.ReservationStatus
@@ -26,7 +27,9 @@ class ReleaseReservationUseCaseTest {
     private val executionRepository = mockk<ExecutionRepository>(relaxed = true)
     private val outbox = mockk<OutboxRepository>(relaxed = true)
     private val writer = mockk<TransactionalWriter>(relaxed = true)
-    private val useCase = ReleaseReservationUseCase(reservationRepository, executionRepository, outbox, writer)
+    private val metrics = RecordingMetrics()
+    private val useCase =
+        ReleaseReservationUseCase(reservationRepository, executionRepository, outbox, writer, metrics)
 
     private val orderId = UUID.randomUUID()
     private val reservationId = UUID.randomUUID()
@@ -76,13 +79,36 @@ class ReleaseReservationUseCaseTest {
 
         useCase.release(reservationId) { execution ->
             EventEnvelope(
-                eventType = SagaEventType.RESERVATION_EXPIRED,
+                eventType = DomainEventType.RESERVATION_EXPIRED,
                 payload = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
                     .put("orderId", execution.orderId.toString())
                     .put("reservationId", reservationId.toString()),
             )
         }
 
-        assertEquals(SagaEventType.RESERVATION_EXPIRED, envSlot.captured.eventType)
+        assertEquals(DomainEventType.RESERVATION_EXPIRED, envSlot.captured.eventType)
+    }
+
+    @Test
+    fun `counts the CANCELED transition when the reservation is released`() {
+        every { reservationRepository.findById(reservationId) } returns reservation(ReservationStatus.ACTIVE)
+        every { executionRepository.findByOrderId(orderId) } returns
+            Execution(orderId = orderId, status = ExecutionStatus.RESERVED, orderSnapshot = MissingNode.getInstance())
+        every { writer.writeAll(any(), any(), any()) } returns TxResult.SUCCESS
+
+        val released = useCase.release(reservationId)
+
+        assertEquals(true, released)
+        assertEquals(listOf(ExecutionStatus.CANCELED.name), metrics.statuses)
+    }
+
+    @Test
+    fun `counts nothing when the reservation is not active`() {
+        every { reservationRepository.findById(reservationId) } returns reservation(ReservationStatus.RELEASED)
+
+        val released = useCase.release(reservationId)
+
+        assertEquals(false, released)
+        assertEquals(emptyList<String>(), metrics.statuses)
     }
 }

@@ -5,7 +5,7 @@ dependencies {
     implementation(libs.logstash.logback.encoder)
     implementation(libs.opentelemetry.api)
 
-    // Item pré-serializado (Map<String, AttributeValue>) flui pelos ports de saga (outbox/writer)
+    // Item pré-serializado (Map<String, AttributeValue>) flui pelos ports de evento (outbox/writer)
     // como bloco opaco montado pelos repositórios — tradeoff do design DynamoDB deste plano.
     implementation(libs.aws.sdk.kotlin.dynamodb)
 

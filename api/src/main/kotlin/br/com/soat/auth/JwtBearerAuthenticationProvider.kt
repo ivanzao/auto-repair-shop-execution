@@ -10,7 +10,7 @@ import io.ktor.server.auth.parseAuthorizationHeader
 import io.ktor.server.response.respond
 import java.util.UUID
 
-data class JwtUserPrincipal(val userId: UUID, val role: String)
+data class JwtUserPrincipal(val userId: UUID, val role: String, val document: String)
 
 class JwtBearerAuthenticationProvider(
     config: Config,
@@ -64,7 +64,7 @@ class JwtBearerAuthenticationProvider(
             return
         }
 
-        context.principal(JwtUserPrincipal(userId, claims.role))
+        context.principal(JwtUserPrincipal(userId, claims.role, claims.cpf))
     }
 }
 

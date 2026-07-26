@@ -2,6 +2,7 @@ package br.com.soat.execution
 
 import br.com.soat.execution.model.Execution
 import br.com.soat.execution.model.ExecutionStatus
+import br.com.soat.shared.model.User
 import br.com.soat.storage.DynamoDb
 import br.com.soat.storage.DynamoTestSupport
 import br.com.soat.storage.createExecutionTable
@@ -61,12 +62,31 @@ class ExecutionDynamoRepositoryIntegrationTest {
 
     @Test
     fun `findByStatus queries the gsi`() {
-        val queued = execution(status = ExecutionStatus.QUEUED)
-        repo.save(queued)
+        val enqueued = execution(status = ExecutionStatus.ENQUEUED)
+        repo.save(enqueued)
         repo.save(execution(status = ExecutionStatus.RESERVED))
 
-        val found = repo.findByStatus(ExecutionStatus.QUEUED)
+        val found = repo.findByStatus(ExecutionStatus.ENQUEUED)
         assertEquals(1, found.size)
-        assertEquals(queued.orderId, found.single().orderId)
+        assertEquals(enqueued.orderId, found.single().orderId)
+    }
+
+    @Test
+    fun `findByStatus finds executions awaiting diagnosis`() {
+        val awaiting = execution(status = ExecutionStatus.AWAITING_DIAGNOSIS)
+        repo.save(awaiting)
+        repo.save(execution(status = ExecutionStatus.RESERVED))
+
+        val found = repo.findByStatus(ExecutionStatus.AWAITING_DIAGNOSIS)
+        assertEquals(1, found.size)
+        assertEquals(awaiting.orderId, found.single().orderId)
+    }
+
+    @Test
+    fun `diagnosedBy survives the round trip`() {
+        val user = User(id = UUID.randomUUID(), document = "12345678909")
+        val e = execution().copy(diagnosedBy = user)
+        repo.save(e)
+        assertEquals(user, repo.findByOrderId(e.orderId)?.diagnosedBy)
     }
 }

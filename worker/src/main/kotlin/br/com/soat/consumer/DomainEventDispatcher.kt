@@ -1,17 +1,19 @@
 package br.com.soat.consumer
 
 import br.com.soat.event.ProcessedEventRepository
-import br.com.soat.event.SagaEventHandler
+import br.com.soat.event.DomainEventHandler
 import br.com.soat.event.model.EventEnvelope
+import br.com.soat.metric.MetricsPort
 import br.com.soat.tracing.Tracing
 import io.opentelemetry.api.trace.SpanKind
 import org.slf4j.LoggerFactory
 
-class SagaDispatcher(
-    handlers: List<SagaEventHandler>,
+class DomainEventDispatcher(
+    handlers: List<DomainEventHandler>,
     private val processed: ProcessedEventRepository,
+    private val metrics: MetricsPort,
 ) {
-    private val logger = LoggerFactory.getLogger(SagaDispatcher::class.java)
+    private val logger = LoggerFactory.getLogger(DomainEventDispatcher::class.java)
     private val byType = handlers.groupBy { it.eventType }
 
     fun dispatch(env: EventEnvelope, traceparent: String? = null) {
@@ -31,6 +33,7 @@ class SagaDispatcher(
                     val consumerId = handler::class.simpleName!!
                     if (processed.markProcessed(env.eventId, consumerId)) {
                         handler.handle(env)
+                        metrics.inboundEventApplied()
                     } else {
                         logger.info("Event ${env.eventId} already processed by $consumerId, skipping")
                     }

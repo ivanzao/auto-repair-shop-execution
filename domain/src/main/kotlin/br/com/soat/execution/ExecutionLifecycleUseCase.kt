@@ -2,11 +2,12 @@ package br.com.soat.execution
 
 import br.com.soat.event.OutboxRepository
 import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
+import br.com.soat.event.model.DomainEventType
 import br.com.soat.execution.exception.ExecutionNotFoundException
 import br.com.soat.execution.model.Execution
 import br.com.soat.execution.model.ExecutionStatus
 import br.com.soat.execution.repository.ExecutionRepository
+import br.com.soat.metric.MetricsPort
 import com.fasterxml.jackson.databind.ObjectMapper
 import java.util.UUID
 import org.slf4j.LoggerFactory
@@ -16,6 +17,7 @@ class ExecutionLifecycleUseCase(
     private val outbox: OutboxRepository,
     private val writer: TransactionalWriter,
     private val mapper: ObjectMapper,
+    private val metrics: MetricsPort,
 ) {
     private val logger = LoggerFactory.getLogger(ExecutionLifecycleUseCase::class.java)
 
@@ -24,11 +26,11 @@ class ExecutionLifecycleUseCase(
 
     fun listByStatus(status: ExecutionStatus): List<Execution> = executionRepository.findByStatus(status)
 
-    fun finishDiagnosis(orderId: UUID): Execution =
-        transition(orderId, SagaEventType.DIAGNOSE_FINISHED) { it.finishDiagnosis() }
+    fun start(orderId: UUID): Execution =
+        transition(orderId, DomainEventType.EXECUTION_STARTED) { it.start() }
 
     fun finish(orderId: UUID): Execution =
-        transition(orderId, SagaEventType.EXECUTION_FINISHED) { it.finish() }
+        transition(orderId, DomainEventType.EXECUTION_FINISHED) { it.finish() }
 
     fun fail(orderId: UUID, reason: String): Execution {
         val execution = get(orderId)
@@ -37,7 +39,7 @@ class ExecutionLifecycleUseCase(
             .put("orderId", orderId.toString())
             .put("reason", reason)
         execution.paymentId?.let { payload.put("paymentId", it) }
-        persist(failed, EventEnvelope(eventType = SagaEventType.EXECUTION_FAILED, payload = payload))
+        persist(failed, EventEnvelope(eventType = DomainEventType.EXECUTION_FAILED, payload = payload))
         logger.info("Execution failed for order {} ({})", orderId, reason)
         return failed
     }
@@ -61,5 +63,6 @@ class ExecutionLifecycleUseCase(
                 TxPut(outbox.putItem(event)),
             ),
         )
+        metrics.executionStatusChanged(execution.status.name)
     }
 }

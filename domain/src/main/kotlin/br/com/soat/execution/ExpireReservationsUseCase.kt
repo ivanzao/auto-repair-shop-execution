@@ -1,7 +1,8 @@
 package br.com.soat.execution
 
+import br.com.soat.event.model.DomainEventType
 import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
+import br.com.soat.metric.MetricsPort
 import br.com.soat.reservation.repository.ReservationRepository
 import com.fasterxml.jackson.databind.ObjectMapper
 import java.time.Instant
@@ -11,6 +12,7 @@ class ExpireReservationsUseCase(
     private val reservationRepository: ReservationRepository,
     private val release: ReleaseReservationUseCase,
     private val mapper: ObjectMapper,
+    private val metrics: MetricsPort,
     private val now: () -> Instant = { Instant.now() },
 ) {
     private val logger = LoggerFactory.getLogger(ExpireReservationsUseCase::class.java)
@@ -20,14 +22,15 @@ class ExpireReservationsUseCase(
         if (expired.isEmpty()) return
         logger.info("Expiring {} reservation(s)", expired.size)
         expired.forEach { reservation ->
-            release.release(reservation.id) { execution ->
+            val released = release.release(reservation.id) { execution ->
                 EventEnvelope(
-                    eventType = SagaEventType.RESERVATION_EXPIRED,
+                    eventType = DomainEventType.RESERVATION_EXPIRED,
                     payload = mapper.createObjectNode()
                         .put("orderId", execution.orderId.toString())
                         .put("reservationId", reservation.id.toString()),
                 )
             }
+            if (released) metrics.reservationExpired()
         }
     }
 

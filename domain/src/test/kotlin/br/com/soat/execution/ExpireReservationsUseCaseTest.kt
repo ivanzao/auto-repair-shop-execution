@@ -1,7 +1,8 @@
 package br.com.soat.execution
 
 import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
+import br.com.soat.event.model.DomainEventType
+import br.com.soat.metric.RecordingMetrics
 import br.com.soat.reservation.model.Reservation
 import br.com.soat.reservation.model.ReservationLine
 import br.com.soat.reservation.repository.ReservationRepository
@@ -21,7 +22,9 @@ class ExpireReservationsUseCaseTest {
     private val reservationRepository = mockk<ReservationRepository>()
     private val release = mockk<ReleaseReservationUseCase>(relaxed = true)
     private val fixedNow = Instant.parse("2026-07-20T00:00:00Z")
-    private val useCase = ExpireReservationsUseCase(reservationRepository, release, mapper) { fixedNow }
+    private val metrics = RecordingMetrics()
+    private val useCase =
+        ExpireReservationsUseCase(reservationRepository, release, mapper, metrics) { fixedNow }
 
     private fun reservation() = Reservation(
         orderId = UUID.randomUUID(),
@@ -46,7 +49,7 @@ class ExpireReservationsUseCaseTest {
         val r = reservation()
         every { reservationRepository.findActiveExpiredBefore(fixedNow, 25) } returns listOf(r)
         val emitSlot = slot<(br.com.soat.execution.model.Execution) -> EventEnvelope?>()
-        every { release.release(eq(r.id), capture(emitSlot)) } returns Unit
+        every { release.release(eq(r.id), capture(emitSlot)) } returns true
 
         useCase.run()
 
@@ -56,7 +59,7 @@ class ExpireReservationsUseCaseTest {
             orderSnapshot = com.fasterxml.jackson.databind.node.MissingNode.getInstance(),
         )
         val event = emitSlot.captured(execution)!!
-        assertEquals(SagaEventType.RESERVATION_EXPIRED, event.eventType)
+        assertEquals(DomainEventType.RESERVATION_EXPIRED, event.eventType)
         assertEquals(r.orderId.toString(), event.payload["orderId"].asText())
         assertEquals(r.id.toString(), event.payload["reservationId"].asText())
     }
@@ -66,5 +69,19 @@ class ExpireReservationsUseCaseTest {
         every { reservationRepository.findActiveExpiredBefore(fixedNow, 25) } returns emptyList()
         useCase.run()
         verify(exactly = 0) { release.release(any(), any()) }
+    }
+
+    @Test
+    fun `counts only the reservations actually released`() {
+        val released = reservation()
+        val alreadyGone = reservation()
+        every { reservationRepository.findActiveExpiredBefore(fixedNow, 25) } returns
+            listOf(released, alreadyGone)
+        every { release.release(eq(released.id), any()) } returns true
+        every { release.release(eq(alreadyGone.id), any()) } returns false
+
+        useCase.run()
+
+        assertEquals(1, metrics.expired)
     }
 }

@@ -19,7 +19,7 @@ class SqsConsumerWorker(
     private val endpointOverride: String?,
     private val accessKeyId: String?,
     private val secretAccessKey: String?,
-    private val dispatcher: SagaDispatcher,
+    private val dispatcher: DomainEventDispatcher,
     private val mapper: ObjectMapper,
     private val coroutineDispatcher: CoroutineDispatcher,
 ) {

@@ -1,20 +1,20 @@
 # auto-repair-shop-execution
 
-Microsserviço **execution** da oficina (Fase 4). Consome `OrderCreated`, reserva insumos de forma
-atômica, produz `SuppliesReserved` (repassando o quote priced), conduz o ciclo de execução da OS e
-executa as compensações da saga. Kotlin/Ktor sobre **DynamoDB single-table**, coreografia pura (sem
-orquestrador).
+Microsserviço **execution** da oficina (Fase 4). Consome `OrderCreated`, hospeda o catálogo de
+serviços, conduz o diagnóstico da OS (resolvendo preços e reservando insumos de forma atômica),
+produz `DiagnoseFinished` com o quote priced, conduz o ciclo de execução e executa as compensações.
+Kotlin/Ktor sobre **DynamoDB single-table**, coreografia pura (sem orquestrador).
 
 ## Arquitetura
 
 Esqueleto hexagonal multi-módulo (clonado do monólito `auto-repair-shop`), trocando o storage
-Postgres/Exposed por **DynamoDB single-table** e adicionando a metade **consumidora** da saga.
+Postgres/Exposed por **DynamoDB single-table** e adicionando a metade **consumidora** dos eventos.
 
 ```
 domain/   modelos, use cases, portas (repositories), eventos e envelope
-api/      Ktor: /v1/supplies, /v1/executions, /health, /metrics
+api/      Ktor: /v1/services, /v1/supplies, /v1/orders, /health, /metrics
 storage/  DynamoDB: provider, key helpers, *DynamoRepository, outbox, idempotência, TransactionalWriter
-worker/   SnsPublisher, SqsConsumerWorker + SagaDispatcher, ScheduledTaskRunner, OutboxRelayTask, ReservationExpiredTask
+worker/   SnsPublisher, SqsConsumerWorker + DomainEventDispatcher, ScheduledTaskRunner, OutboxRelayTask, ReservationExpiredTask
 metric/   MicrometerMetricsPort
 main/     Main.kt (wiring Koin), application.yaml
 ```
@@ -25,25 +25,32 @@ Cada serviço reage a eventos e deriva seu próprio estado — não há um coord
 
 ```
                  OrderCreated (order)
-                        │
-                        ▼
-          ┌─────────────────────────────┐
-          │  reserva atômica de insumos  │
-          └─────────────────────────────┘
-             │                      │
-   estoque ok│                      │estoque insuficiente / corrida
-             ▼                      ▼
-     SuppliesReserved         PartsUnavailable
-       (→ billing)              (→ order)
-             │
-   PaymentConfirmed (billing) ──► ExecutionStarted (→ order)
-             │
-   REST mecânico: finish-diagnosis ─► DiagnoseFinished
-                  finish           ─► ExecutionFinished  (→ order)
-                  fail             ─► ExecutionFailed     (→ order, billing refund)
+                        |
+                        v
+          +--------------------------------+
+          |  Execution AWAITING_DIAGNOSIS   |  (sem evento: a OS entra na fila)
+          +--------------------------------+
+                        |
+   REST mecanico: POST /v1/orders/{id}/finish-diagnosis
+                  {services: [uuid], supplies: [{id, quantity}]}
+                        |
+          +------------------------------+
+          |  reserva atomica de insumos   |
+          +------------------------------+
+             |                      |
+   estoque ok|                      |estoque insuficiente / corrida
+             v                      v
+      DiagnoseFinished        SuppliesUnavailable
+        (-> order)          (-> order, Execution CANCELED)
+             |
+   PaymentConfirmed (billing) --> Execution ENQUEUED (sem evento)
+             |
+   REST mecanico: start  -> ExecutionStarted  (-> order)
+                  finish -> ExecutionFinished (-> order)
+                  fail   -> ExecutionFailed   (-> order, billing refund)
 
-   Compensações que liberam a reserva (devolvem estoque, cancelam a Execution):
-     QuoteRejected (billing) · PaymentFailed (billing) · ReservationExpired (job)
+   Compensacoes que liberam a reserva (devolvem estoque, cancelam a Execution):
+     QuoteRejected (billing) . PaymentFailed (billing) . ReservationExpired (job)
 ```
 
 Justificativa: cada evento é um fato imutável; o estado da OS no execution é derivado da sequência de
@@ -57,6 +64,7 @@ Tabela `auto-repair-shop-execution-{env}`, chaves `pk`/`sk` (S), GSI `gsi1` (`gs
 | Item | pk / sk | gsi1pk / gsi1sk (esparso) | Uso |
 |---|---|---|---|
 | Supply | `SUPPLY#{id}` | `SUPPLY` / `{name}` | estoque; listagem `/v1/supplies` |
+| Service | `SERVICE#{id}` | `SERVICE` / `{name}` | catalogo de servicos; listagem `/v1/services` |
 | Execution | `ORDER#{orderId}` | `EXEC#{status}` / `{createdAt}` | agregado da OS; fila do mecânico |
 | Reservation | `RES#{id}` | `RES#ACTIVE` / `{expiresAt}` | linhas reservadas; job de expiração |
 | Outbox | `OUTBOX#{eventId}` | `OUTBOX#PENDING` / `{occurredAt}` | relay → SNS |
@@ -69,9 +77,12 @@ respectivos jobs (expiração / relay) varrem apenas o que interessa.
 
 - **Reserva atômica**: `TransactWriteItems` grava Reservation + Execution + evento de outbox e
   decrementa o estoque com condição `quantityInStock >= :q`. Falha condicional num decremento →
-  `PartsUnavailable`; falha no put de idempotência (`attribute_not_exists(pk)` na Execution) → no-op.
+  `SuppliesUnavailable` com a Execution movida para `CANCELED`. A Execution só sai de
+  `AWAITING_DIAGNOSIS` sob condição `status = AWAITING_DIAGNOSIS`, então um `finish-diagnosis`
+  concorrente perde a corrida com 409; o `OrderCreated` reentregue bate em
+  `attribute_not_exists(pk)` e vira no-op.
 - **Idempotência de consumo**: dedup por `(eventId, consumerId)` (item `PROC#…`, conditional put) +
-  escrita condicional em toda mutação de saga. OrderCreated reentregue → `DUPLICATE`, sem efeito.
+  escrita condicional em toda mutação de estado. OrderCreated reentregue → `DUPLICATE`, sem efeito.
 - **Sem ShedLock**: o monólito usava ShedLock (JDBC) para serializar jobs entre réplicas. Aqui **não**
   há JDBC e as escritas são idempotentes/condicionais, então múltiplas réplicas são seguras sem lock
   distribuído. Se duas réplicas relayarem o mesmo item do outbox, ambas publicam mas o downstream
@@ -82,20 +93,22 @@ respectivos jobs (expiração / relay) varrem apenas o que interessa.
 ## Contrato de eventos
 
 Consome (fila `execution-saga`): `OrderCreated`, `PaymentConfirmed`, `QuoteRejected`, `PaymentFailed`.
-Produz (tópico `execution-events`, attribute `eventType` camelCase): `SuppliesReserved`,
-`PartsUnavailable`, `ExecutionStarted`, `DiagnoseFinished`, `ExecutionFinished`, `ExecutionFailed`,
+Produz (tópico `execution-events`, attribute `eventType` camelCase): `DiagnoseFinished`,
+`SuppliesUnavailable`, `ExecutionStarted`, `ExecutionFinished`, `ExecutionFailed`,
 `ReservationExpired`. Envelope: `{ eventId, eventType, eventVersion, occurredAt, payload }`.
 
-`SuppliesReserved` (consumido pelo billing) enriquece `name`/`unitPrice` de cada insumo a partir do
-estoque local e calcula `totalAmount`:
+`DiagnoseFinished` (consumido pelo order) resolve `name`/`price` de cada serviço no catálogo
+local, `name`/`unitPrice` de cada insumo no estoque local, carrega o `diagnosedBy` extraído do
+JWT e calcula `totalAmount`:
 
 ```json
 {
   "orderId": "uuid", "reservationId": "uuid",
+  "diagnosedBy": { "id": "uuid", "document": "12345678909" },
   "customer": { "name": "...", "email": "..." },
-  "services": [ { "name": "...", "price": 149.90 } ],
+  "services": [ { "id": "uuid", "name": "...", "price": 100.00 } ],
   "supplies": [ { "id": "uuid", "name": "...", "quantity": 2, "unitPrice": 30.00 } ],
-  "totalAmount": 209.90
+  "totalAmount": 160.00
 }
 ```
 
@@ -128,7 +141,8 @@ imagem `ghcr.io/ivanzao/auto-repair-shop-execution`, namespace `auto-repair-shop
 ## API
 
 Swagger UI em `GET /swagger`; spec em `api/src/main/resources/openapi/documentation.yaml`.
-Rotas de `/v1/executions` exigem role `MECHANIC`; as de `/v1/supplies`, `ADMIN`.
+Rotas de `/v1/orders` exigem role `MECHANIC`; as de `/v1/services` e `/v1/supplies` aceitam
+`ADMIN`, `ATTENDANT` ou `MECHANIC`. O JWT precisa carregar `sub`, `role` e `cpf`.
 
 ## Cobertura
 

@@ -21,7 +21,7 @@ fun Application.supplyRoutes(koin: Koin) {
 
     routing {
         route("/v1") {
-            authenticate("admin") {
+            authenticate("any") {
                 post("/supplies") {
                     val request = call.receive<CreateSupplyRequestDTO>()
                     val created = useCase.create(request.toModel())

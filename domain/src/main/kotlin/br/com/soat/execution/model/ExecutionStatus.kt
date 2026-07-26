@@ -1,10 +1,10 @@
 package br.com.soat.execution.model
 
 enum class ExecutionStatus {
+    AWAITING_DIAGNOSIS,
     RESERVED,
-    QUEUED,
+    ENQUEUED,
     IN_PROGRESS,
-    DIAGNOSED,
     COMPLETED,
     FAILED,
     CANCELED,

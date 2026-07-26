@@ -1,44 +1,33 @@
 package br.com.soat
 
-import br.com.soat.event.model.SagaEventType
+import br.com.soat.event.model.DomainEventType
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import java.math.BigDecimal
 import java.util.UUID
 
-object SagaFixtures {
+private const val ORDER_CREATED = """
+{
+  "orderId": "11111111-1111-1111-1111-111111111111",
+  "customer": {
+    "id": "22222222-2222-2222-2222-222222222222",
+    "name": "Maria Silva",
+    "email": "maria@exemplo.com"
+  },
+  "vehicle": {
+    "plate": "ABC1234",
+    "model": "Gol 1.6"
+  }
+}
+"""
 
-    fun orderCreated(
-        mapper: ObjectMapper,
-        orderId: UUID,
-        supplyId: UUID,
-        quantity: Int,
-        customerName: String = "Alice",
-        customerEmail: String = "alice@example.com",
-        serviceName: String = "Troca de óleo",
-        servicePrice: BigDecimal = "149.90".toBigDecimal(),
-    ): JsonNode {
-        val payload = mapper.createObjectNode()
+object EventFixtures {
+
+    fun orderCreated(mapper: ObjectMapper, orderId: UUID): JsonNode {
+        val payload = mapper.readTree(ORDER_CREATED) as ObjectNode
         payload.put("orderId", orderId.toString())
-        payload.putObject("customer").apply {
-            put("id", UUID.randomUUID().toString())
-            put("name", customerName)
-            put("email", customerEmail)
-        }
-        payload.putObject("vehicle").apply {
-            put("plate", "ABC1D23")
-            put("model", "Fusca")
-        }
-        payload.putArray("services").addObject().apply {
-            put("id", UUID.randomUUID().toString())
-            put("name", serviceName)
-            put("price", servicePrice)
-        }
-        payload.putArray("supplies").addObject().apply {
-            put("id", supplyId.toString())
-            put("quantity", quantity)
-        }
-        return envelope(mapper, SagaEventType.ORDER_CREATED, payload)
+        return envelope(mapper, DomainEventType.ORDER_CREATED, payload)
     }
 
     fun paymentConfirmed(mapper: ObjectMapper, orderId: UUID, paymentId: String, amount: BigDecimal): JsonNode {
@@ -46,14 +35,14 @@ object SagaFixtures {
             .put("orderId", orderId.toString())
             .put("paymentId", paymentId)
             .put("amount", amount)
-        return envelope(mapper, SagaEventType.PAYMENT_CONFIRMED, payload)
+        return envelope(mapper, DomainEventType.PAYMENT_CONFIRMED, payload)
     }
 
     fun quoteRejected(mapper: ObjectMapper, orderId: UUID, reservationId: UUID): JsonNode {
         val payload = mapper.createObjectNode()
             .put("orderId", orderId.toString())
             .put("reservationId", reservationId.toString())
-        return envelope(mapper, SagaEventType.QUOTE_REJECTED, payload)
+        return envelope(mapper, DomainEventType.QUOTE_REJECTED, payload)
     }
 
     fun paymentFailed(mapper: ObjectMapper, orderId: UUID, reservationId: UUID, reason: String = "recusado"): JsonNode {
@@ -61,7 +50,7 @@ object SagaFixtures {
             .put("orderId", orderId.toString())
             .put("reservationId", reservationId.toString())
             .put("reason", reason)
-        return envelope(mapper, SagaEventType.PAYMENT_FAILED, payload)
+        return envelope(mapper, DomainEventType.PAYMENT_FAILED, payload)
     }
 
     private fun envelope(mapper: ObjectMapper, eventType: String, payload: JsonNode): JsonNode {

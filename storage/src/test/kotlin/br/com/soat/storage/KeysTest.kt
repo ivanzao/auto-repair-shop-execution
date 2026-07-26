@@ -14,6 +14,6 @@ class KeysTest {
         assertEquals("OUTBOX#$id", Keys.outbox(id))
         assertEquals("PROC#$id", Keys.processed(id))
         assertEquals("CONS#worker", Keys.consumer("worker"))
-        assertEquals("EXEC#QUEUED", Keys.execStatus("QUEUED"))
+        assertEquals("EXEC#ENQUEUED", Keys.execStatus("ENQUEUED"))
     }
 }
