@@ -11,7 +11,7 @@ class EventEnvelopeSerializationTest {
     @Test
     fun `traceparent is not serialized into the wire body`() {
         val envelope = EventEnvelope(
-            eventType = "SuppliesReserved",
+            eventType = "DiagnoseFinished",
             payload = mapper.readTree("""{"orderId":"x"}"""),
             traceparent = "00-54e531bd9ad1f760ab1f329d547f0b7f-9817e25f6d45e950-01",
         )
@@ -19,7 +19,7 @@ class EventEnvelopeSerializationTest {
         val body = mapper.writeValueAsString(envelope)
 
         assertFalse(body.contains("traceparent"), "traceparent must travel as an SNS attribute, not in the body")
-        assertTrue(body.contains("SuppliesReserved"))
+        assertTrue(body.contains("DiagnoseFinished"))
         assertTrue(body.contains("payload"))
     }
 }

@@ -28,6 +28,9 @@ import aws.sdk.kotlin.services.dynamodb.model.Projection
 import aws.sdk.kotlin.services.dynamodb.model.ProjectionType
 import aws.sdk.kotlin.services.dynamodb.model.ResourceNotFoundException
 import aws.sdk.kotlin.services.dynamodb.model.ScalarAttributeType
+import br.com.soat.execution.model.Execution
+import br.com.soat.execution.model.ExecutionStatus
+import br.com.soat.execution.repository.ExecutionRepository
 import br.com.soat.storage.DynamoDb
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -250,15 +253,43 @@ abstract class IntegrationTest {
         throw AssertionError("Timeout waiting for published event eventType=$eventType orderId=$orderId")
     }
 
-    protected fun adminHeaders(userId: UUID = UUID.randomUUID()): Map<String, String> =
-        mapOf("Authorization" to "Bearer ${fakeJwt(userId, "ADMIN")}")
+    protected fun waitForExecution(orderId: UUID, timeoutSeconds: Long = 25): Execution {
+        val repository = get<ExecutionRepository>()
+        val deadline = Instant.now().plusSeconds(timeoutSeconds)
+        while (Instant.now().isBefore(deadline)) {
+            repository.findByOrderId(orderId)?.let { return it }
+            Thread.sleep(300)
+        }
+        throw AssertionError("Timeout waiting for the execution of order $orderId")
+    }
 
-    protected fun mechanicHeaders(userId: UUID = UUID.randomUUID()): Map<String, String> =
-        mapOf("Authorization" to "Bearer ${fakeJwt(userId, "MECHANIC")}")
+    protected fun waitForExecutionStatus(
+        orderId: UUID,
+        expected: ExecutionStatus,
+        timeoutSeconds: Long = 25,
+    ): Execution {
+        val repository = get<ExecutionRepository>()
+        val deadline = Instant.now().plusSeconds(timeoutSeconds)
+        while (Instant.now().isBefore(deadline)) {
+            val execution = repository.findByOrderId(orderId)
+            if (execution != null && execution.status == expected) return execution
+            Thread.sleep(300)
+        }
+        throw AssertionError("Timeout waiting for order $orderId to reach $expected")
+    }
 
-    private fun fakeJwt(userId: UUID, role: String): String {
+    protected fun adminHeaders(userId: UUID = UUID.randomUUID(), document: String = "12345678909"): Map<String, String> =
+        mapOf("Authorization" to "Bearer ${fakeJwt(userId, "ADMIN", document)}")
+
+    protected fun attendantHeaders(userId: UUID = UUID.randomUUID(), document: String = "12345678909"): Map<String, String> =
+        mapOf("Authorization" to "Bearer ${fakeJwt(userId, "ATTENDANT", document)}")
+
+    protected fun mechanicHeaders(userId: UUID = UUID.randomUUID(), document: String = "12345678909"): Map<String, String> =
+        mapOf("Authorization" to "Bearer ${fakeJwt(userId, "MECHANIC", document)}")
+
+    private fun fakeJwt(userId: UUID, role: String, document: String): String {
         val header = b64u("""{"alg":"none","typ":"JWT"}""")
-        val payload = b64u("""{"sub":"$userId","role":"$role","exp":9999999999}""")
+        val payload = b64u("""{"sub":"$userId","role":"$role","cpf":"$document","exp":9999999999}""")
         return "$header.$payload.test"
     }
 

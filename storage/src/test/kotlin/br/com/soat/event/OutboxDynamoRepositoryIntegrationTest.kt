@@ -1,7 +1,7 @@
 package br.com.soat.event
 
 import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
+import br.com.soat.event.model.DomainEventType
 import br.com.soat.storage.DynamoDb
 import br.com.soat.storage.DynamoTestSupport
 import br.com.soat.storage.createExecutionTable
@@ -40,7 +40,7 @@ class OutboxDynamoRepositoryIntegrationTest {
     }
 
     private fun envelope() = EventEnvelope(
-        eventType = SagaEventType.SUPPLIES_RESERVED,
+        eventType = DomainEventType.DIAGNOSE_FINISHED,
         payload = mapper.createObjectNode().put("orderId", "abc"),
     )
 
@@ -51,7 +51,7 @@ class OutboxDynamoRepositoryIntegrationTest {
         val pending = repo.pending(10)
         assertEquals(1, pending.size)
         assertEquals(env.eventId, pending.single().eventId)
-        assertEquals(SagaEventType.SUPPLIES_RESERVED, pending.single().eventType)
+        assertEquals(DomainEventType.DIAGNOSE_FINISHED, pending.single().eventType)
         assertEquals("abc", pending.single().payload["orderId"].asText())
     }
 

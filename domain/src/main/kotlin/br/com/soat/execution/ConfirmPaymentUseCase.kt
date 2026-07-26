@@ -1,19 +1,17 @@
 package br.com.soat.execution
 
-import br.com.soat.event.OutboxRepository
-import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
+import aws.sdk.kotlin.services.dynamodb.model.AttributeValue
 import br.com.soat.execution.exception.InvalidExecutionTransitionException
+import br.com.soat.execution.model.ExecutionStatus
 import br.com.soat.execution.repository.ExecutionRepository
-import com.fasterxml.jackson.databind.ObjectMapper
+import br.com.soat.metric.MetricsPort
 import java.util.UUID
 import org.slf4j.LoggerFactory
 
 class ConfirmPaymentUseCase(
     private val executionRepository: ExecutionRepository,
-    private val outbox: OutboxRepository,
     private val writer: TransactionalWriter,
-    private val mapper: ObjectMapper,
+    private val metrics: MetricsPort,
 ) {
     private val logger = LoggerFactory.getLogger(ConfirmPaymentUseCase::class.java)
 
@@ -24,24 +22,26 @@ class ConfirmPaymentUseCase(
             return
         }
 
-        val started = try {
-            execution.withPayment(paymentId).queue().start()
+        val enqueued = try {
+            execution.withPayment(paymentId).enqueue()
         } catch (_: InvalidExecutionTransitionException) {
-            logger.info("Execution {} already started ({}), PaymentConfirmed is a no-op", orderId, execution.status)
+            logger.info("Execution {} already left RESERVED ({}), PaymentConfirmed is a no-op", orderId, execution.status)
             return
         }
 
-        val event = EventEnvelope(
-            eventType = SagaEventType.EXECUTION_STARTED,
-            payload = mapper.createObjectNode().put("orderId", orderId.toString()),
-        )
-
         writer.writeAll(
             puts = listOf(
-                TxPut(executionRepository.putItem(started)),
-                TxPut(outbox.putItem(event)),
+                TxPut(
+                    item = executionRepository.putItem(enqueued),
+                    conditionExpression = "#st = :reserved",
+                    expressionAttributeValues = mapOf(
+                        ":reserved" to AttributeValue.S(ExecutionStatus.RESERVED.name),
+                    ),
+                    expressionAttributeNames = mapOf("#st" to "status"),
+                ),
             ),
         )
-        logger.info("Execution started for order {}", orderId)
+        metrics.executionStatusChanged(ExecutionStatus.ENQUEUED.name)
+        logger.info("Execution enqueued for order {}", orderId)
     }
 }

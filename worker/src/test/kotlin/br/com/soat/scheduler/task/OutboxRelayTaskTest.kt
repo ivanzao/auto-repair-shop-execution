@@ -2,7 +2,7 @@ package br.com.soat.scheduler.task
 
 import br.com.soat.event.OutboxRepository
 import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
+import br.com.soat.event.model.DomainEventType
 import br.com.soat.messaging.SnsPublisher
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -24,21 +24,21 @@ class OutboxRelayTaskTest {
     fun `publishes pending envelope and marks published`() {
         val env = EventEnvelope(
             eventId = UUID.randomUUID(),
-            eventType = SagaEventType.SUPPLIES_RESERVED,
+            eventType = DomainEventType.DIAGNOSE_FINISHED,
             payload = mapper.createObjectNode().put("orderId", "o1"),
         )
         every { outbox.pending(10) } returns listOf(env)
 
         task.execute()
 
-        verify { sns.publish(body = any(), eventType = SagaEventType.SUPPLIES_RESERVED, traceparent = null) }
+        verify { sns.publish(body = any(), eventType = DomainEventType.DIAGNOSE_FINISHED, traceparent = null) }
         verify { outbox.markPublished(env.eventId) }
     }
 
     @Test
     fun `does not mark published when publish fails`() {
         val env = EventEnvelope(
-            eventType = SagaEventType.SUPPLIES_RESERVED,
+            eventType = DomainEventType.DIAGNOSE_FINISHED,
             payload = mapper.createObjectNode(),
         )
         every { outbox.pending(10) } returns listOf(env)

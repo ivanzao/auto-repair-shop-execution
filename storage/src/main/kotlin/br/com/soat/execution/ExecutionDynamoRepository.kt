@@ -7,6 +7,7 @@ import aws.sdk.kotlin.services.dynamodb.model.QueryRequest
 import br.com.soat.execution.model.Execution
 import br.com.soat.execution.model.ExecutionStatus
 import br.com.soat.execution.repository.ExecutionRepository
+import br.com.soat.shared.model.User
 import br.com.soat.storage.DynamoDb
 import br.com.soat.storage.Keys
 import br.com.soat.storage.s
@@ -31,6 +32,10 @@ class ExecutionDynamoRepository(
         put("orderId", s(execution.orderId.toString()))
         put("status", s(execution.status.name))
         execution.reservationId?.let { put("reservationId", s(it.toString())) }
+        execution.diagnosedBy?.let {
+            put("diagnosedById", s(it.id.toString()))
+            put("diagnosedByDocument", s(it.document))
+        }
         execution.paymentId?.let { put("paymentId", s(it)) }
         put("orderSnapshot", s(mapper.writeValueAsString(execution.orderSnapshot)))
         put("createdAt", s(execution.createdAt.toString()))
@@ -41,6 +46,9 @@ class ExecutionDynamoRepository(
         orderId = UUID.fromString(str("orderId")),
         status = ExecutionStatus.valueOf(str("status")),
         reservationId = strOrNull("reservationId")?.let(UUID::fromString),
+        diagnosedBy = strOrNull("diagnosedById")?.let {
+            User(id = UUID.fromString(it), document = str("diagnosedByDocument"))
+        },
         orderSnapshot = mapper.readTree(str("orderSnapshot")),
         paymentId = strOrNull("paymentId"),
         createdAt = Instant.parse(str("createdAt")),

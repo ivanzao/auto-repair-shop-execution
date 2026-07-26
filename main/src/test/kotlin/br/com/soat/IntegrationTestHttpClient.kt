@@ -37,20 +37,52 @@ class IntegrationTestHttpClient(private val serverPort: Int) {
         return mapper.readTree(response.body()) as ObjectNode
     }
 
-    fun listExecutions(status: String, headers: Map<String, String>): HttpResponse<String> =
-        get("/v1/executions?status=$status", headers)
+    fun createService(
+        name: String,
+        price: BigDecimal,
+        headers: Map<String, String>,
+    ): ObjectNode {
+        val body = mapper.createObjectNode().apply {
+            put("name", name)
+            put("description", "servico de teste")
+            put("price", price)
+            putArray("requiredSupplies")
+        }
+        val response = post("/v1/services", mapper.writeValueAsString(body), headers)
+        check(response.statusCode() == 201) { "createService failed: ${response.statusCode()} ${response.body()}" }
+        return mapper.readTree(response.body()) as ObjectNode
+    }
 
-    fun getExecution(orderId: String, headers: Map<String, String>): HttpResponse<String> =
-        get("/v1/executions/$orderId", headers)
+    fun listOrders(status: String, headers: Map<String, String>): HttpResponse<String> =
+        get("/v1/orders?status=$status", headers)
 
-    fun finishDiagnosis(orderId: String, headers: Map<String, String>): HttpResponse<String> =
-        post("/v1/executions/$orderId/finish-diagnosis", "{}", headers)
+    fun getOrder(orderId: String, headers: Map<String, String>): HttpResponse<String> =
+        get("/v1/orders/$orderId", headers)
+
+    fun finishDiagnosis(
+        orderId: String,
+        serviceIds: List<String>,
+        supplies: List<Pair<String, Int>>,
+        headers: Map<String, String>,
+    ): HttpResponse<String> {
+        val body = mapper.createObjectNode()
+        val servicesArr = body.putArray("services")
+        serviceIds.forEach { servicesArr.add(it) }
+        val suppliesArr = body.putArray("supplies")
+        supplies.forEach { (id, quantity) ->
+            suppliesArr.addObject().put("id", id).put("quantity", quantity)
+        }
+        return post("/v1/orders/$orderId/finish-diagnosis", mapper.writeValueAsString(body), headers)
+    }
+
+    fun startOrder(orderId: String, headers: Map<String, String>): HttpResponse<String> =
+        post("/v1/orders/$orderId/start", "{}", headers)
 
     fun finish(orderId: String, headers: Map<String, String>): HttpResponse<String> =
-        post("/v1/executions/$orderId/finish", "{}", headers)
+        post("/v1/orders/$orderId/finish", "{}", headers)
 
     fun fail(orderId: String, reason: String, headers: Map<String, String>): HttpResponse<String> =
-        post("/v1/executions/$orderId/fail", """{"reason":"$reason"}""", headers)
+        post("/v1/orders/$orderId/fail", """{"reason":"$reason"}""", headers)
 
     fun post(path: String, body: String, headers: Map<String, String> = emptyMap()): HttpResponse<String> {
         val builder = HttpRequest.newBuilder()

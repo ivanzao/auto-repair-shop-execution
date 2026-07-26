@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap
 class MicrometerMetricsPort(private val registry: MeterRegistry) : MetricsPort {
 
     private val inboundEvents: Counter = Counter.builder("execution_inbound_events_total")
-        .description("Total de eventos de saga consumidos e aplicados")
+        .description("Total de eventos de domínio consumidos e aplicados")
         .register(registry)
 
     private val suppliesReserved: Counter = Counter.builder("execution_supplies_reserved_total")

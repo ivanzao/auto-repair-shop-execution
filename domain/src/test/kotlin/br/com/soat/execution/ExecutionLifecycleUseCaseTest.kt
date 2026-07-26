@@ -1,13 +1,14 @@
 package br.com.soat.execution
 
 import br.com.soat.event.OutboxRepository
+import br.com.soat.event.model.DomainEventType
 import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
 import br.com.soat.execution.exception.ExecutionNotFoundException
 import br.com.soat.execution.exception.InvalidExecutionTransitionException
 import br.com.soat.execution.model.Execution
 import br.com.soat.execution.model.ExecutionStatus
 import br.com.soat.execution.repository.ExecutionRepository
+import br.com.soat.metric.RecordingMetrics
 import com.fasterxml.jackson.databind.node.MissingNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.every
@@ -25,7 +26,8 @@ class ExecutionLifecycleUseCaseTest {
     private val executionRepository = mockk<ExecutionRepository>(relaxed = true)
     private val outbox = mockk<OutboxRepository>(relaxed = true)
     private val writer = mockk<TransactionalWriter>(relaxed = true)
-    private val useCase = ExecutionLifecycleUseCase(executionRepository, outbox, writer, mapper)
+    private val metrics = RecordingMetrics()
+    private val useCase = ExecutionLifecycleUseCase(executionRepository, outbox, writer, mapper, metrics)
 
     private val orderId = UUID.randomUUID()
 
@@ -33,8 +35,25 @@ class ExecutionLifecycleUseCaseTest {
         Execution(orderId = orderId, status = status, paymentId = paymentId, orderSnapshot = MissingNode.getInstance())
 
     @Test
-    fun `finish on DIAGNOSED emits ExecutionFinished and completes`() {
-        every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.DIAGNOSED)
+    fun `start on ENQUEUED emits ExecutionStarted and moves to IN_PROGRESS`() {
+        every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.ENQUEUED)
+        val execSlot = slot<Execution>()
+        every { executionRepository.putItem(capture(execSlot)) } returns emptyMap()
+        val envSlot = slot<EventEnvelope>()
+        every { outbox.putItem(capture(envSlot)) } returns emptyMap()
+
+        val result = useCase.start(orderId)
+
+        assertEquals(ExecutionStatus.IN_PROGRESS, result.status)
+        assertEquals(ExecutionStatus.IN_PROGRESS, execSlot.captured.status)
+        assertEquals(DomainEventType.EXECUTION_STARTED, envSlot.captured.eventType)
+        assertEquals(orderId.toString(), envSlot.captured.payload["orderId"].asText())
+        assertEquals(listOf(ExecutionStatus.IN_PROGRESS.name), metrics.statuses)
+    }
+
+    @Test
+    fun `finish on IN_PROGRESS emits ExecutionFinished and completes`() {
+        every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.IN_PROGRESS)
         val execSlot = slot<Execution>()
         every { executionRepository.putItem(capture(execSlot)) } returns emptyMap()
         val envSlot = slot<EventEnvelope>()
@@ -44,20 +63,9 @@ class ExecutionLifecycleUseCaseTest {
 
         assertEquals(ExecutionStatus.COMPLETED, result.status)
         assertEquals(ExecutionStatus.COMPLETED, execSlot.captured.status)
-        assertEquals(SagaEventType.EXECUTION_FINISHED, envSlot.captured.eventType)
+        assertEquals(DomainEventType.EXECUTION_FINISHED, envSlot.captured.eventType)
         assertEquals(orderId.toString(), envSlot.captured.payload["orderId"].asText())
-    }
-
-    @Test
-    fun `finishDiagnosis emits DiagnoseFinished`() {
-        every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.IN_PROGRESS)
-        val envSlot = slot<EventEnvelope>()
-        every { outbox.putItem(capture(envSlot)) } returns emptyMap()
-
-        val result = useCase.finishDiagnosis(orderId)
-
-        assertEquals(ExecutionStatus.DIAGNOSED, result.status)
-        assertEquals(SagaEventType.DIAGNOSE_FINISHED, envSlot.captured.eventType)
+        assertEquals(listOf(ExecutionStatus.COMPLETED.name), metrics.statuses)
     }
 
     @Test
@@ -67,17 +75,26 @@ class ExecutionLifecycleUseCaseTest {
         val envSlot = slot<EventEnvelope>()
         every { outbox.putItem(capture(envSlot)) } returns emptyMap()
 
-        val result = useCase.fail(orderId, "peça quebrou")
+        val result = useCase.fail(orderId, "peca quebrou")
 
         assertEquals(ExecutionStatus.FAILED, result.status)
-        assertEquals(SagaEventType.EXECUTION_FAILED, envSlot.captured.eventType)
+        assertEquals(DomainEventType.EXECUTION_FAILED, envSlot.captured.eventType)
         assertEquals("pay-9", envSlot.captured.payload["paymentId"].asText())
-        assertEquals("peça quebrou", envSlot.captured.payload["reason"].asText())
+        assertEquals("peca quebrou", envSlot.captured.payload["reason"].asText())
+        assertEquals(listOf(ExecutionStatus.FAILED.name), metrics.statuses)
     }
 
     @Test
-    fun `finish on RESERVED throws invalid transition (409)`() {
+    fun `start on RESERVED throws invalid transition (409)`() {
         every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.RESERVED)
+        assertThrows(InvalidExecutionTransitionException::class.java) { useCase.start(orderId) }
+        verify(exactly = 0) { writer.writeAll(any(), any(), any()) }
+        assertEquals(emptyList<String>(), metrics.statuses)
+    }
+
+    @Test
+    fun `finish on ENQUEUED throws invalid transition (409)`() {
+        every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.ENQUEUED)
         assertThrows(InvalidExecutionTransitionException::class.java) { useCase.finish(orderId) }
         verify(exactly = 0) { writer.writeAll(any(), any(), any()) }
     }

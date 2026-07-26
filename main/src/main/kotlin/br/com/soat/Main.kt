@@ -3,12 +3,13 @@ package br.com.soat
 import br.com.soat.config.Config
 import br.com.soat.config.fromClasspath
 import br.com.soat.config.prometheusMeterRegistry
-import br.com.soat.consumer.SagaDispatcher
+import br.com.soat.consumer.DomainEventDispatcher
 import br.com.soat.consumer.SqsConsumerWorker
 import br.com.soat.event.OutboxRepository
 import br.com.soat.event.ProcessedEventRepository
-import br.com.soat.event.SagaEventHandler
+import br.com.soat.event.DomainEventHandler
 import br.com.soat.execution.ConfirmPaymentUseCase
+import br.com.soat.execution.EnqueueForDiagnosisUseCase
 import br.com.soat.execution.ExecutionLifecycleUseCase
 import br.com.soat.execution.ExpireReservationsUseCase
 import br.com.soat.execution.ReleaseReservationUseCase
@@ -26,6 +27,9 @@ import br.com.soat.metric.MetricsPort
 import br.com.soat.metric.MicrometerMetricsPort
 import br.com.soat.messaging.SnsPublisher
 import br.com.soat.reservation.ReservationDynamoRepository
+import br.com.soat.service.ServiceDynamoRepository
+import br.com.soat.service.ServiceUseCase
+import br.com.soat.service.repository.ServiceRepository
 import br.com.soat.reservation.repository.ReservationRepository
 import br.com.soat.scheduler.ScheduledTask
 import br.com.soat.scheduler.ScheduledTaskRunner
@@ -93,6 +97,7 @@ val applicationModule = module {
     }
 
     single<SupplyRepository> { SupplyDynamoRepository(get()) }
+    single<ServiceRepository> { ServiceDynamoRepository(get(), get()) }
     single<ExecutionRepository> { ExecutionDynamoRepository(get(), get()) }
     single<ReservationRepository> { ReservationDynamoRepository(get()) }
     single<OutboxRepository> { OutboxDynamoRepository(get(), get()) }
@@ -100,17 +105,19 @@ val applicationModule = module {
     single<TransactionalWriter> { DynamoTransactionalWriter(get()) }
 
     single { SupplyUseCase(get()) }
-    single { ReserveSuppliesUseCase(get(), get(), get(), get(), get(), get(), get()) }
-    single { ReleaseReservationUseCase(get(), get(), get(), get()) }
-    single { ConfirmPaymentUseCase(get(), get(), get(), get()) }
-    single { ExecutionLifecycleUseCase(get(), get(), get(), get()) }
-    single { ExpireReservationsUseCase(get(), get(), get()) }
+    single { ServiceUseCase(get()) }
+    single { EnqueueForDiagnosisUseCase(get(), get(), get(), get()) }
+    single { ReserveSuppliesUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { ReleaseReservationUseCase(get(), get(), get(), get(), get()) }
+    single { ConfirmPaymentUseCase(get(), get(), get()) }
+    single { ExecutionLifecycleUseCase(get(), get(), get(), get(), get()) }
+    single { ExpireReservationsUseCase(get(), get(), get(), get()) }
 
-    single { OrderCreatedHandler(get()) } bind SagaEventHandler::class
-    single { PaymentConfirmedHandler(get()) } bind SagaEventHandler::class
-    single { QuoteRejectedHandler(get()) } bind SagaEventHandler::class
-    single { PaymentFailedHandler(get()) } bind SagaEventHandler::class
-    single { SagaDispatcher(getAll(), get()) }
+    single { OrderCreatedHandler(get()) } bind DomainEventHandler::class
+    single { PaymentConfirmedHandler(get()) } bind DomainEventHandler::class
+    single { QuoteRejectedHandler(get()) } bind DomainEventHandler::class
+    single { PaymentFailedHandler(get()) } bind DomainEventHandler::class
+    single { DomainEventDispatcher(getAll(), get(), get()) }
 
     single {
         val c = get<Config>()

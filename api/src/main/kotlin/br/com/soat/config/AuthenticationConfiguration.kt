@@ -10,6 +10,9 @@ fun Application.configureAuthentication() {
         jwtBearer("admin") {
             allowedRoles = setOf("ADMIN")
         }
+        jwtBearer("any") {
+            allowedRoles = setOf("ADMIN", "ATTENDANT", "MECHANIC")
+        }
         jwtBearer("mechanic") {
             allowedRoles = setOf("ADMIN", "MECHANIC")
         }

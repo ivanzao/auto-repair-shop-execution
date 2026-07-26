@@ -1,13 +1,10 @@
 package br.com.soat.execution
 
-import br.com.soat.event.OutboxRepository
-import br.com.soat.event.model.EventEnvelope
-import br.com.soat.event.model.SagaEventType
 import br.com.soat.execution.model.Execution
 import br.com.soat.execution.model.ExecutionStatus
 import br.com.soat.execution.repository.ExecutionRepository
+import br.com.soat.metric.RecordingMetrics
 import com.fasterxml.jackson.databind.node.MissingNode
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -18,11 +15,10 @@ import java.util.UUID
 
 class ConfirmPaymentUseCaseTest {
 
-    private val mapper = jacksonObjectMapper()
     private val executionRepository = mockk<ExecutionRepository>(relaxed = true)
-    private val outbox = mockk<OutboxRepository>(relaxed = true)
     private val writer = mockk<TransactionalWriter>(relaxed = true)
-    private val useCase = ConfirmPaymentUseCase(executionRepository, outbox, writer, mapper)
+    private val metrics = RecordingMetrics()
+    private val useCase = ConfirmPaymentUseCase(executionRepository, writer, metrics)
 
     private val orderId = UUID.randomUUID()
 
@@ -30,29 +26,30 @@ class ConfirmPaymentUseCaseTest {
         Execution(orderId = orderId, status = status, orderSnapshot = MissingNode.getInstance())
 
     @Test
-    fun `confirms payment and emits ExecutionStarted`() {
+    fun `confirms payment and stops at ENQUEUED without emitting`() {
         every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.RESERVED)
         val putSlot = slot<Execution>()
         every { executionRepository.putItem(capture(putSlot)) } returns emptyMap()
-        val envSlot = slot<EventEnvelope>()
-        every { outbox.putItem(capture(envSlot)) } returns emptyMap()
+        val putsSlot = slot<List<TxPut>>()
+        every { writer.writeAll(capture(putsSlot), any(), any()) } returns TxResult.SUCCESS
 
         useCase.confirm(orderId, "pay-123")
 
-        assertEquals(ExecutionStatus.IN_PROGRESS, putSlot.captured.status)
+        assertEquals(ExecutionStatus.ENQUEUED, putSlot.captured.status)
         assertEquals("pay-123", putSlot.captured.paymentId)
-        assertEquals(SagaEventType.EXECUTION_STARTED, envSlot.captured.eventType)
-        assertEquals(orderId.toString(), envSlot.captured.payload["orderId"].asText())
-        verify { writer.writeAll(any(), any(), any()) }
+        assertEquals(1, putsSlot.captured.size)
+        assertEquals("#st = :reserved", putsSlot.captured.single().conditionExpression)
+        assertEquals(listOf(ExecutionStatus.ENQUEUED.name), metrics.statuses)
     }
 
     @Test
-    fun `no-op when execution already started`() {
+    fun `no-op when execution already left RESERVED`() {
         every { executionRepository.findByOrderId(orderId) } returns execution(ExecutionStatus.IN_PROGRESS)
 
         useCase.confirm(orderId, "pay-123")
 
         verify(exactly = 0) { writer.writeAll(any(), any(), any()) }
+        assertEquals(emptyList<String>(), metrics.statuses)
     }
 
     @Test
@@ -62,5 +59,6 @@ class ConfirmPaymentUseCaseTest {
         useCase.confirm(orderId, "pay-123")
 
         verify(exactly = 0) { writer.writeAll(any(), any(), any()) }
+        assertEquals(emptyList<String>(), metrics.statuses)
     }
 }

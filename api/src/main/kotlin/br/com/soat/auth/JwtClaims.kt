@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import java.util.Base64
 
-data class JwtClaims(val sub: String, val role: String) {
+data class JwtClaims(val sub: String, val role: String, val cpf: String) {
 
     companion object {
         private val mapper: ObjectMapper = jacksonObjectMapper()
@@ -28,8 +28,9 @@ data class JwtClaims(val sub: String, val role: String) {
 
             val sub = node.get("sub")?.asText()?.takeIf { it.isNotBlank() } ?: return null
             val role = node.get("role")?.asText()?.takeIf { it.isNotBlank() } ?: return null
+            val cpf = node.get("cpf")?.asText()?.takeIf { it.isNotBlank() } ?: return null
 
-            return JwtClaims(sub, role)
+            return JwtClaims(sub, role, cpf)
         }
     }
 }

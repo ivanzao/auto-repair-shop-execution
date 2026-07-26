@@ -6,9 +6,9 @@ info:
 
     Responsável pela fila de execução das ordens de serviço, pelo avanço de
     status durante diagnóstico e reparo, e pelo estoque de peças. Participa da
-    saga coreografada: reserva peças ao receber `OrderCreated`, libera a reserva
-    nas compensações (`QuoteRejected`, `PaymentFailed`) e comunica o fim da
-    execução ao order.
+    coreografia por eventos: enfileira a OS ao receber `OrderCreated`, reserva o
+    estoque no diagnóstico, libera a reserva nas compensações (`QuoteRejected`,
+    `PaymentFailed`) e comunica o fim da execução ao order.
 
     Persistência em DynamoDB single-table.
   version: "1.0.0"
@@ -20,10 +20,12 @@ servers:
 tags:
   - name: Health
     description: "Health check da aplicação"
-  - name: Execution
-    description: "Fila de execução e ciclo de vida da execução (requer role MECHANIC)"
+  - name: Order
+    description: "Ordem de serviço na oficina: fila, diagnóstico e ciclo de execução (requer role MECHANIC)"
+  - name: Service
+    description: "Catálogo de serviços da oficina (ADMIN, ATTENDANT ou MECHANIC)"
   - name: Supply
-    description: "Gerenciamento do estoque de peças (requer role ADMIN)"
+    description: "Gerenciamento do estoque de peças (ADMIN, ATTENDANT ou MECHANIC)"
 
 paths:
   /health:
@@ -56,26 +58,26 @@ paths:
               schema:
                 type: string
 
-  /v1/executions:
+  /v1/orders:
     get:
       tags:
-        - Execution
-      summary: "Lista execuções por status"
+        - Order
+      summary: "Lista ordens de serviço por status"
       description: |
-        Retorna as execuções em um determinado status. É a fila de trabalho do
-        mecânico: sem o parâmetro `status`, retorna as execuções em `QUEUED`.
+        Fila de trabalho do mecânico. Sem o parâmetro `status`, retorna as ordens em
+        `AWAITING_DIAGNOSIS`.
       security:
         - bearerAuth: []
       parameters:
         - name: status
           in: query
           required: false
-          description: "Status a filtrar. Default: `QUEUED`."
+          description: "Status a filtrar. Default: `AWAITING_DIAGNOSIS`."
           schema:
             $ref: "#/components/schemas/ExecutionStatus"
       responses:
         "200":
-          description: "Lista de execuções no status informado"
+          description: "Lista de ordens no status informado"
           content:
             application/json:
               schema:
@@ -89,16 +91,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Token ausente ou inválido"
+          description: "Token ausente, inválido ou sem o claim `cpf`"
         "403":
           description: "Token válido, mas sem a role MECHANIC"
 
-  /v1/executions/{orderId}:
+  /v1/orders/{orderId}:
     get:
       tags:
-        - Execution
-      summary: "Consulta uma execução"
-      description: "Retorna a execução da ordem de serviço informada."
+        - Order
+      summary: "Consulta uma ordem de serviço"
+      description: "Retorna a visão de oficina da ordem de serviço informada."
       security:
         - bearerAuth: []
       parameters:
@@ -111,7 +113,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: "Execução encontrada"
+          description: "Ordem encontrada"
           content:
             application/json:
               schema:
@@ -123,24 +125,82 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Token ausente ou inválido"
+          description: "Token ausente, inválido ou sem o claim `cpf`"
         "403":
           description: "Token válido, mas sem a role MECHANIC"
-        "422":
-          description: "Nenhuma execução para a ordem informada"
+        "404":
+          description: "Nenhuma ordem de serviço com o id informado"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /v1/executions/{orderId}/finish-diagnosis:
+  /v1/orders/{orderId}/finish-diagnosis:
     post:
       tags:
-        - Execution
+        - Order
       summary: "Conclui o diagnóstico"
       description: |
-        Marca o diagnóstico como concluído e move a execução para `DIAGNOSED`.
-        Publica `DiagnoseFinished` na saga.
+        O mecânico informa os serviços e insumos que a OS precisa. O execution resolve os
+        preços no catálogo e no estoque, reserva o estoque de forma atômica, move a ordem
+        para `RESERVED` e publica `DiagnoseFinished`. O `diagnosedBy` sai do JWT
+        (`sub` + `cpf`).
+
+        Se faltar insumo, responde `409` com o que faltou, move a ordem para `CANCELED` e
+        publica `SuppliesUnavailable`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinishDiagnosisRequest"
+      responses:
+        "200":
+          description: "Diagnóstico concluído e estoque reservado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionResponse"
+        "400":
+          description: "`orderId` inválido ou corpo da requisição malformado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente, inválido ou sem o claim `cpf`"
+        "403":
+          description: "Token válido, mas sem a role MECHANIC"
+        "404":
+          description: "Ordem de serviço ou serviço do catálogo inexistente"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "Estoque insuficiente, ou a ordem não está mais aguardando diagnóstico"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuppliesUnavailableResponse"
+
+  /v1/orders/{orderId}/start:
+    post:
+      tags:
+        - Order
+      summary: "Inicia a execução"
+      description: |
+        O mecânico retira a ordem da fila `ENQUEUED` e começa o reparo. Move para
+        `IN_PROGRESS` e publica `ExecutionStarted`.
       security:
         - bearerAuth: []
       parameters:
@@ -152,7 +212,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: "Diagnóstico concluído"
+          description: "Execução iniciada"
           content:
             application/json:
               schema:
@@ -164,20 +224,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Token ausente ou inválido"
+          description: "Token ausente, inválido ou sem o claim `cpf`"
         "403":
           description: "Token válido, mas sem a role MECHANIC"
-        "422":
-          description: "Execução em estado que não permite concluir diagnóstico"
+        "404":
+          description: "Nenhuma ordem de serviço com o id informado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "Ordem em estado que não permite iniciar"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /v1/executions/{orderId}/finish:
+  /v1/orders/{orderId}/finish:
     post:
       tags:
-        - Execution
+        - Order
       summary: "Conclui a execução"
       description: |
         Marca a execução como concluída e move para `COMPLETED`. Publica
@@ -205,24 +271,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Token ausente ou inválido"
+          description: "Token ausente, inválido ou sem o claim `cpf`"
         "403":
           description: "Token válido, mas sem a role MECHANIC"
-        "422":
-          description: "Execução em estado que não permite conclusão"
+        "404":
+          description: "Nenhuma ordem de serviço com o id informado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "Ordem em estado que não permite conclusão"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /v1/executions/{orderId}/fail:
+  /v1/orders/{orderId}/fail:
     post:
       tags:
-        - Execution
+        - Order
       summary: "Registra falha na execução"
       description: |
         Marca a execução como falha, com o motivo informado, e move para `FAILED`.
-        Publica `ExecutionFailed`, que dispara a compensação na saga.
+        Publica `ExecutionFailed`, que dispara a compensação no fluxo distribuído.
       security:
         - bearerAuth: []
       parameters:
@@ -260,15 +332,180 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidationError"
         "401":
-          description: "Token ausente ou inválido"
+          description: "Token ausente, inválido ou sem o claim `cpf`"
         "403":
           description: "Token válido, mas sem a role MECHANIC"
-        "422":
-          description: "Execução em estado que não permite registrar falha"
+        "404":
+          description: "Nenhuma ordem de serviço com o id informado"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "Ordem em estado que não permite registrar falha"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/services:
+    get:
+      tags:
+        - Service
+      summary: "Lista os serviços do catálogo"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Lista de serviços"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceResponse"
+        "401":
+          description: "Token ausente, inválido ou sem o claim `cpf`"
+        "403":
+          description: "Role não autorizada"
+
+    post:
+      tags:
+        - Service
+      summary: "Cadastra um serviço"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceRequest"
+      responses:
+        "201":
+          description: "Serviço cadastrado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+        "400":
+          description: "Corpo da requisição inválido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente, inválido ou sem o claim `cpf`"
+        "403":
+          description: "Role não autorizada"
+
+  /v1/services/{id}:
+    get:
+      tags:
+        - Service
+      summary: "Consulta um serviço"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Serviço encontrado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+        "400":
+          description: "`id` não é um UUID válido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente, inválido ou sem o claim `cpf`"
+        "403":
+          description: "Role não autorizada"
+        "404":
+          description: "Serviço não encontrado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      tags:
+        - Service
+      summary: "Atualiza um serviço"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceRequest"
+      responses:
+        "200":
+          description: "Serviço atualizado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+        "400":
+          description: "`id` inválido ou corpo da requisição malformado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente, inválido ou sem o claim `cpf`"
+        "403":
+          description: "Role não autorizada"
+        "404":
+          description: "Serviço não encontrado"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - Service
+      summary: "Remove um serviço"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: "Serviço removido"
+        "400":
+          description: "`id` não é um UUID válido"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: "Token ausente, inválido ou sem o claim `cpf`"
+        "403":
+          description: "Role não autorizada"
 
   /v1/supplies:
     get:
@@ -289,7 +526,7 @@ paths:
         "401":
           description: "Token ausente ou inválido"
         "403":
-          description: "Token válido, mas sem a role ADMIN"
+          description: "Role não autorizada"
 
     post:
       tags:
@@ -319,7 +556,7 @@ paths:
         "401":
           description: "Token ausente ou inválido"
         "403":
-          description: "Token válido, mas sem a role ADMIN"
+          description: "Role não autorizada"
 
   /v1/supplies/{id}:
     get:
@@ -351,7 +588,7 @@ paths:
         "401":
           description: "Token ausente ou inválido"
         "403":
-          description: "Token válido, mas sem a role ADMIN"
+          description: "Role não autorizada"
         "422":
           description: "Peça não encontrada"
           content:
@@ -394,7 +631,7 @@ paths:
         "401":
           description: "Token ausente ou inválido"
         "403":
-          description: "Token válido, mas sem a role ADMIN"
+          description: "Role não autorizada"
         "422":
           description: "Peça não encontrada"
           content:
@@ -427,7 +664,7 @@ paths:
         "401":
           description: "Token ausente ou inválido"
         "403":
-          description: "Token válido, mas sem a role ADMIN"
+          description: "Role não autorizada"
         "422":
           description: "Peça não encontrada"
           content:
@@ -451,18 +688,19 @@ components:
         **Formato do header:**
         `Authorization: Bearer <token>`
 
-        Rotas de `/v1/executions` exigem a role `MECHANIC`; as de `/v1/supplies`
-        exigem `ADMIN`.
+        Rotas de `/v1/orders` exigem a role `MECHANIC`; as de `/v1/services` e
+        `/v1/supplies` aceitam `ADMIN`, `ATTENDANT` ou `MECHANIC`. O token precisa
+        carregar `sub`, `role` e `cpf`.
 
   schemas:
     ExecutionStatus:
       type: string
-      description: "Status da execução dentro da saga"
+      description: "Status da ordem de serviço dentro da oficina"
       enum:
+        - AWAITING_DIAGNOSIS
         - RESERVED
-        - QUEUED
+        - ENQUEUED
         - IN_PROGRESS
-        - DIAGNOSED
         - COMPLETED
         - FAILED
         - CANCELED
@@ -480,6 +718,11 @@ components:
           type: [string, "null"]
           format: uuid
           description: "Reserva de peças associada, quando houver"
+        diagnosedBy:
+          oneOf:
+            - $ref: "#/components/schemas/User"
+            - type: "null"
+          description: "Mecânico que concluiu o diagnóstico, quando houver"
         paymentId:
           type: [string, "null"]
           description: "Identificador do pagamento confirmado, quando houver"
@@ -494,6 +737,138 @@ components:
         - status
         - createdAt
         - modifiedAt
+
+    User:
+      type: object
+      description: "Identidade extraída do JWT (`sub` + `cpf`)"
+      properties:
+        id:
+          type: string
+          format: uuid
+        document:
+          type: string
+          examples:
+            - "12345678909"
+      required:
+        - id
+        - document
+
+    FinishDiagnosisRequest:
+      type: object
+      description: "Serviços e insumos determinados pelo mecânico no diagnóstico"
+      properties:
+        services:
+          type: array
+          items:
+            type: string
+            format: uuid
+        supplies:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+            required:
+              - id
+              - quantity
+      required:
+        - services
+        - supplies
+
+    SuppliesUnavailableResponse:
+      type: object
+      description: "Insumos sem estoque suficiente para o diagnóstico solicitado"
+      properties:
+        code:
+          type: string
+          examples:
+            - "SUPPLIES_UNAVAILABLE"
+        message:
+          type: string
+        missingSupplies:
+          type: array
+          items:
+            type: object
+            properties:
+              supplyId:
+                type: string
+                format: uuid
+              name:
+                type: string
+              requested:
+                type: integer
+              available:
+                type: integer
+            required:
+              - supplyId
+              - name
+              - requested
+              - available
+      required:
+        - code
+        - message
+        - missingSupplies
+
+    CreateServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          examples:
+            - "Troca de óleo"
+        description:
+          type: [string, "null"]
+          examples:
+            - "Óleo e filtro"
+        price:
+          type: number
+          examples:
+            - 100.00
+        requiredSupplies:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupplyRequirement"
+      required:
+        - name
+        - price
+
+    ServiceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: [string, "null"]
+        price:
+          type: number
+        requiredSupplies:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupplyRequirement"
+      required:
+        - id
+        - name
+        - price
+        - requiredSupplies
+
+    SupplyRequirement:
+      type: object
+      properties:
+        supplyId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+      required:
+        - supplyId
+        - quantity
 
     CreateSupplyRequest:
       type: object

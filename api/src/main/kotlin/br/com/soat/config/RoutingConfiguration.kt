@@ -1,6 +1,7 @@
 package br.com.soat.config
 
-import br.com.soat.execution.executionRoutes
+import br.com.soat.execution.orderRoutes
+import br.com.soat.service.serviceRoutes
 import br.com.soat.supply.supplyRoutes
 import io.ktor.server.application.Application
 import io.ktor.server.plugins.swagger.swaggerUI
@@ -18,5 +19,6 @@ fun Application.configureRouting(koin: Koin) {
     }
 
     supplyRoutes(koin)
-    executionRoutes(koin)
+    serviceRoutes(koin)
+    orderRoutes(koin)
 }
