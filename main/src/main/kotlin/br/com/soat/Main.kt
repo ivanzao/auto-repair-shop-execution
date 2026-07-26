@@ -55,6 +55,7 @@ import org.slf4j.LoggerFactory
 private val logger = LoggerFactory.getLogger("br.com.soat.MainKt")
 
 fun main() {
+    logger.info("Hello FIAP SOAT :)")
     logger.info("Starting auto-repair-shop-execution application")
     val koinApplication = startKoin { modules(applicationModule) }
     val koin = koinApplication.koin
