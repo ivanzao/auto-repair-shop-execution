@@ -759,11 +759,13 @@ components:
       properties:
         services:
           type: array
+          default: []
           items:
             type: string
             format: uuid
         supplies:
           type: array
+          default: []
           items:
             type: object
             properties:
@@ -775,9 +777,6 @@ components:
             required:
               - id
               - quantity
-      required:
-        - services
-        - supplies
 
     SuppliesUnavailableResponse:
       type: object
