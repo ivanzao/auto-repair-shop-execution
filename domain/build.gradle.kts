@@ -6,7 +6,7 @@ dependencies {
     implementation(libs.opentelemetry.api)
 
     // Item pré-serializado (Map<String, AttributeValue>) flui pelos ports de evento (outbox/writer)
-    // como bloco opaco montado pelos repositórios — tradeoff do design DynamoDB deste plano.
+    // como bloco opaco montado pelos repositórios, tradeoff do design DynamoDB deste plano.
     implementation(libs.aws.sdk.kotlin.dynamodb)
 
     implementation(libs.jackson.module.kotlin)

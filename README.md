@@ -1,27 +1,18 @@
 # auto-repair-shop-execution
 
-Microsserviço **execution** da oficina (Fase 4). Consome `OrderCreated`, hospeda o catálogo de
-serviços, conduz o diagnóstico da OS (resolvendo preços e reservando insumos de forma atômica),
-produz `DiagnoseFinished` com o quote priced, conduz o ciclo de execução e executa as compensações.
-Kotlin/Ktor sobre **DynamoDB single-table**, coreografia pura (sem orquestrador).
+Microsserviço **execution** do Auto Repair Shop: dono do catálogo de serviços e do estoque de
+insumos, conduz o diagnóstico da OS resolvendo preços e reservando insumos de forma atômica,
+gerencia a fila de execução e executa as compensações da saga. Kotlin/Ktor sobre **DynamoDB
+single-table**.
 
 ## Arquitetura
 
-Esqueleto hexagonal multi-módulo (clonado do monólito `auto-repair-shop`), trocando o storage
-Postgres/Exposed por **DynamoDB single-table** e adicionando a metade **consumidora** dos eventos.
-
-```
-domain/   modelos, use cases, portas (repositories), eventos e envelope
-api/      Ktor: /v1/services, /v1/supplies, /v1/orders, /health, /metrics
-storage/  DynamoDB: provider, key helpers, *DynamoRepository, outbox, idempotência, TransactionalWriter
-worker/   SnsPublisher, SqsConsumerWorker + DomainEventDispatcher, ScheduledTaskRunner, OutboxRelayTask, ReservationExpiredTask
-metric/   MicrometerMetricsPort
-main/     Main.kt (wiring Koin), application.yaml
-```
+Esqueleto hexagonal multi-módulo, com storage em DynamoDB single-table e a metade **consumidora**
+dos eventos da saga.
 
 ### Coreografia (sem orquestrador)
 
-Cada serviço reage a eventos e deriva seu próprio estado — não há um coordenador central. O execution:
+Cada serviço reage a eventos e deriva o próprio estado. Não há coordenador central.
 
 ```
                  OrderCreated (order)
@@ -53,52 +44,21 @@ Cada serviço reage a eventos e deriva seu próprio estado — não há um coord
      QuoteRejected (billing) . PaymentFailed (billing) . ReservationExpired (job)
 ```
 
-Justificativa: cada evento é um fato imutável; o estado da OS no execution é derivado da sequência de
-eventos recebidos + suas próprias transições. Isso remove acoplamento temporal e ponto único de
-coordenação, ao custo de idempotência e compensações explícitas (tratadas abaixo).
+Cada evento é um fato imutável, e o estado da OS no execution é derivado da sequência de eventos
+recebidos somada às próprias transições. Isso remove acoplamento temporal e ponto único de
+coordenação, ao custo de idempotência e compensações explícitas.
 
-## Modelo DynamoDB single-table
+### Contrato de eventos
 
-Tabela `auto-repair-shop-execution-{env}`, chaves `pk`/`sk` (S), GSI `gsi1` (`gsi1pk`/`gsi1sk`, projection ALL).
+Consome (fila `auto-repair-shop-execution-queue-{env}`): `OrderCreated`, `PaymentConfirmed`,
+`QuoteRejected`, `PaymentFailed`.
+Produz (tópico `auto-repair-shop-execution-events-{env}`, attribute `eventType` camelCase):
+`DiagnoseFinished`, `SuppliesUnavailable`, `ExecutionStarted`, `ExecutionFinished`,
+`ExecutionFailed`, `ReservationExpired`. Envelope:
+`{ eventId, eventType, eventVersion, occurredAt, payload }`.
 
-| Item | pk / sk | gsi1pk / gsi1sk (esparso) | Uso |
-|---|---|---|---|
-| Supply | `SUPPLY#{id}` | `SUPPLY` / `{name}` | estoque; listagem `/v1/supplies` |
-| Service | `SERVICE#{id}` | `SERVICE` / `{name}` | catalogo de servicos; listagem `/v1/services` |
-| Execution | `ORDER#{orderId}` | `EXEC#{status}` / `{createdAt}` | agregado da OS; fila do mecânico |
-| Reservation | `RES#{id}` | `RES#ACTIVE` / `{expiresAt}` | linhas reservadas; job de expiração |
-| Outbox | `OUTBOX#{eventId}` | `OUTBOX#PENDING` / `{occurredAt}` | relay → SNS |
-| ProcessedEvent | `PROC#{eventId}` / `CONS#{consumerId}` | — | dedup |
-
-O GSI é **esparso**: só a `Reservation` ACTIVE e o `Outbox` PENDING carregam `gsi1pk`, então os
-respectivos jobs (expiração / relay) varrem apenas o que interessa.
-
-## Atomicidade, idempotência e multi-réplica
-
-- **Reserva atômica**: `TransactWriteItems` grava Reservation + Execution + evento de outbox e
-  decrementa o estoque com condição `quantityInStock >= :q`. Falha condicional num decremento →
-  `SuppliesUnavailable` com a Execution movida para `CANCELED`. A Execution só sai de
-  `AWAITING_DIAGNOSIS` sob condição `status = AWAITING_DIAGNOSIS`, então um `finish-diagnosis`
-  concorrente perde a corrida com 409; o `OrderCreated` reentregue bate em
-  `attribute_not_exists(pk)` e vira no-op.
-- **Idempotência de consumo**: dedup por `(eventId, consumerId)` (item `PROC#…`, conditional put) +
-  escrita condicional em toda mutação de estado. OrderCreated reentregue → `DUPLICATE`, sem efeito.
-- **Sem ShedLock**: o monólito usava ShedLock (JDBC) para serializar jobs entre réplicas. Aqui **não**
-  há JDBC e as escritas são idempotentes/condicionais, então múltiplas réplicas são seguras sem lock
-  distribuído. Se duas réplicas relayarem o mesmo item do outbox, ambas publicam mas o downstream
-  deduplica por `eventId`.
-- **Outbox transacional → relay → SNS**: o evento é gravado na mesma transação da mutação; o
-  `OutboxRelayTask` (a cada 5s) publica os pendentes no SNS e remove do índice PENDING.
-
-## Contrato de eventos
-
-Consome (fila `execution-saga`): `OrderCreated`, `PaymentConfirmed`, `QuoteRejected`, `PaymentFailed`.
-Produz (tópico `execution-events`, attribute `eventType` camelCase): `DiagnoseFinished`,
-`SuppliesUnavailable`, `ExecutionStarted`, `ExecutionFinished`, `ExecutionFailed`,
-`ReservationExpired`. Envelope: `{ eventId, eventType, eventVersion, occurredAt, payload }`.
-
-`DiagnoseFinished` (consumido pelo order) resolve `name`/`price` de cada serviço no catálogo
-local, `name`/`unitPrice` de cada insumo no estoque local, carrega o `diagnosedBy` extraído do
+`DiagnoseFinished` (consumido pelo order) resolve `name` e `price` de cada serviço no catálogo
+local, `name` e `unitPrice` de cada insumo no estoque local, carrega o `diagnosedBy` extraído do
 JWT e calcula `totalAmount`:
 
 ```json
@@ -112,52 +72,129 @@ JWT e calcula `totalAmount`:
 }
 ```
 
-## Configuração (env)
+Contrato completo: `auto-repair-shop-infra/docs/saga-event-contract.md`.
+
+### Configuração (env)
 
 | Env | Default (dev) | Origem em runtime (SSM) |
 |---|---|---|
 | `DYNAMODB_TABLE_NAME` | auto-repair-shop-execution-dev | `/auto-repair-shop/{env}/execution/dynamodb/table-name` |
 | `SNS_TOPIC_ARN` | (local) | `/auto-repair-shop/{env}/sns/execution-events-topic-arn` |
-| `SQS_QUEUE_URL` | (local) | `/auto-repair-shop/{env}/sqs/execution-saga-queue-url` |
-| `AWS_REGION` | us-east-1 | — |
-| `RESERVATION_TTL_DAYS` | 7 | — |
+| `SQS_QUEUE_URL` | (local) | `/auto-repair-shop/{env}/sqs/execution-queue-url` |
+| `AWS_REGION` | us-east-1 | |
+| `RESERVATION_TTL_DAYS` | 7 | |
 
-Em hml/prod as credenciais AWS vêm da cadeia default do SDK (node role LabRole, ADR-002 — sem IAM
-role/policy dedicada, sem Secrets Manager). O execution só lê SSM.
+Em hml e prod as credenciais AWS vêm da cadeia default do SDK (node role `LabRole`, ADR-002: sem
+IAM role dedicada, sem Secrets Manager). O execution só lê SSM.
 
-## Rodando
+## Modelo DynamoDB single-table
 
-```bash
-./gradlew build                 # compila + testes unitários
-./gradlew test                  # unitários
-./gradlew integrationTest       # integração (LocalStack via TestContainers — requer Docker)
-./gradlew jacocoAggregatedReport
-./gradlew :main:run             # sobe local em :8080 (aponta para LocalStack/local)
+Tabela `auto-repair-shop-execution-{env}`, chaves `pk`/`sk` (S), GSI `gsi1` (`gsi1pk`/`gsi1sk`,
+projection ALL).
+
+| Item | pk / sk | gsi1pk / gsi1sk (esparso) | Uso |
+|---|---|---|---|
+| Supply | `SUPPLY#{id}` | `SUPPLY` / `{name}` | estoque; listagem `/v1/supplies` |
+| Service | `SERVICE#{id}` | `SERVICE` / `{name}` | catalogo de servicos; listagem `/v1/services` |
+| Execution | `ORDER#{orderId}` | `EXEC#{status}` / `{createdAt}` | agregado da OS; fila do mecânico |
+| Reservation | `RES#{id}` | `RES#ACTIVE` / `{expiresAt}` | linhas reservadas; job de expiração |
+| Outbox | `OUTBOX#{eventId}` | `OUTBOX#PENDING` / `{occurredAt}` | relay para SNS |
+| ProcessedEvent | `PROC#{eventId}` / `CONS#{consumerId}` | | dedup |
+
+O GSI é **esparso**: só a `Reservation` ACTIVE e o `Outbox` PENDING carregam `gsi1pk`, então os
+respectivos jobs (expiração e relay) varrem apenas o que interessa.
+
+## Atomicidade, idempotência e multi-réplica
+
+- **Reserva atômica**: `TransactWriteItems` grava Reservation, Execution e o evento de outbox, e
+  decrementa o estoque com condição `quantityInStock >= :q`. Falha condicional num decremento gera
+  `SuppliesUnavailable` com a Execution movida para `CANCELED`. A Execution só sai de
+  `AWAITING_DIAGNOSIS` sob condição `status = AWAITING_DIAGNOSIS`, então um `finish-diagnosis`
+  concorrente perde a corrida com 409; o `OrderCreated` reentregue bate em
+  `attribute_not_exists(pk)` e vira no-op.
+- **Idempotência de consumo**: dedup por `(eventId, consumerId)` (item `PROC#…`, conditional put)
+  somado a escrita condicional em toda mutação de estado. `OrderCreated` reentregue resulta em
+  `DUPLICATE`, sem efeito.
+- **Sem ShedLock**: não há JDBC aqui, e as escritas são idempotentes e condicionais, então
+  múltiplas réplicas são seguras sem lock distribuído. Se duas réplicas relayarem o mesmo item do
+  outbox, ambas publicam e o downstream deduplica por `eventId`.
+- **Outbox transacional para SNS**: o evento é gravado na mesma transação da mutação; o
+  `OutboxRelayTask` (a cada 5s) publica os pendentes e remove do índice PENDING.
+
+## Estrutura de Pastas
+
+```
+domain/   modelos, use cases, portas (repositories), eventos e envelope
+api/      Ktor: /v1/services, /v1/supplies, /v1/orders, /health, /metrics
+storage/  DynamoDB: provider, key helpers, *DynamoRepository, outbox, idempotência, TransactionalWriter
+worker/   SnsPublisher, SqsConsumerWorker + DomainEventDispatcher, ScheduledTaskRunner, OutboxRelayTask, ReservationExpiredTask
+metric/   MicrometerMetricsPort
+main/     Main.kt (wiring Koin), application.yaml
+infra/k8s/ base + overlays/** (Kustomize)
 ```
 
-Health/metrics: `GET /health`, `GET /metrics`. Deploy: containerPort 8080, Service NodePort **30082**,
-imagem `ghcr.io/ivanzao/auto-repair-shop-execution`, namespace `auto-repair-shop-{env}`.
+## Stack
+
+Kotlin 2.2.10 · Ktor 3.3.3 · Koin 4.1.1 · AWS SDK Kotlin (dynamodb + sns + sqs) · Micrometer
+Prometheus · JUnit5 + MockK + Testcontainers (LocalStack) · Docker multi-stage · K8s Kustomize ·
+GitHub Actions.
+
+## Execução Local
+
+```bash
+./gradlew build      # compila e roda os testes unitários
+./gradlew :main:run  # sobe local em :8080, apontando para LocalStack
+```
+
+Health e metrics: `GET /health`, `GET /metrics`.
+
+## Testes
+
+```bash
+./gradlew test                    # unitários
+./gradlew integrationTest         # integração (LocalStack via TestContainers), requer Docker
+./gradlew jacocoAggregatedReport  # relatório em build/reports/jacoco/...
+```
+
+### Cobertura
+
+![Cobertura no SonarCloud](docs/img/sonarcloud-coverage.png)
+
+Análise a cada PR pelo step `Sonar` do `pr-check.yaml`, no projeto `auto-repair-shop-execution`
+da organização `ivanzao`. O quality gate exige 80% de cobertura em código novo.
+
+Ficam fora da contagem o wiring de framework (`config`, `auth`, `metric`), o módulo `main` e os
+DTOs, código sem lógica de negócio própria, ainda analisado para bugs e code smells.
 
 ## API
 
-Swagger UI em `GET /swagger`; spec em `api/src/main/resources/openapi/documentation.yaml`.
-Rotas de `/v1/orders` exigem role `MECHANIC`; as de `/v1/services` e `/v1/supplies` aceitam
-`ADMIN`, `ATTENDANT` ou `MECHANIC`. O JWT precisa carregar `sub`, `role` e `cpf`.
+- **Swagger UI**: `GET /swagger` (execução local)
+- **Spec**: `api/src/main/resources/openapi/documentation.yaml`
+- **Health**: `/health` · **Metrics**: `/metrics`
 
-## Cobertura
+Rotas de `/v1/orders` exigem role `MECHANIC` (ou `ADMIN`); as de `/v1/services` e `/v1/supplies`
+aceitam `ADMIN`, `ATTENDANT` ou `MECHANIC`. O JWT precisa carregar `sub`, `role` e `cpf`.
 
-| Métrica | Valor |
-|---|---|
-| Cobertura (SonarCloud) | **89.0%** |
-| Testes | 31 |
-| Quality gate | Passed |
+## Deploy em Kubernetes
 
-Análise a cada PR pelo step `Sonar` do `pr-check.yaml`, no projeto
-`auto-repair-shop-execution` da organização `ivanzao` no SonarCloud. O quality gate
-exige 80% de cobertura em código novo.
+```bash
+kubectl apply -k infra/k8s/overlays/hml    # namespace auto-repair-shop-hml
+kubectl apply -k infra/k8s/overlays/prod   # namespace auto-repair-shop-prod
+```
 
-Ficam fora da contagem de cobertura o wiring de framework (`config`, `auth`,
-`metric`), o módulo `main` e os DTOs — código sem lógica de negócio própria. Eles
-seguem analisados para bugs, code smells e security hotspots.
+- Container `8080`, imagem `ghcr.io/ivanzao/auto-repair-shop-execution`, namespace
+  `auto-repair-shop-{env}`.
+- O NodePort do Service vem do SSM (`/auto-repair-shop/{env}/execution/node-port`) e é aplicado
+  pelo CI.
 
-<!-- TODO: print do dashboard do SonarCloud (projeto é privado, link exige login) -->
+## CI/CD
+
+- `pr-check.yaml`: unit, integration, BDD e Sonar em cada PR.
+- `build-and-deploy.yaml`: testa, publica a imagem no GHCR, lê os params do SSM, reescreve o
+  ConfigMap e aplica o overlay Kustomize em hml e depois em prod. O deploy de produção fica
+  pendente de aprovação (`required_reviewers`).
+
+### Secrets necessários
+
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `GHCR_PAT`, `GHCR_TOKEN`,
+`SONAR_TOKEN`.
