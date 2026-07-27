@@ -43,6 +43,8 @@ subprojects {
     }
 
     tasks.register<Test>("integrationTest") {
+        group = "verification"
+        description = "Runs the integration tests, which require Docker"
         useJUnitPlatform()
         excludes.clear()
         include("**/*IntegrationTest.*")
@@ -56,6 +58,8 @@ subprojects {
     }
 
     tasks.register<Test>("bddTest") {
+        group = "verification"
+        description = "Runs the Cucumber BDD tests, which require Docker"
         useJUnitPlatform()
         excludes.clear()
         include("**/*BddTest.*")
